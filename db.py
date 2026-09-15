@@ -3,7 +3,7 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime, timedelta
 
-DATA_DIR = Path("data")
+DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "news.db"
 
@@ -32,7 +32,6 @@ def init_db():
 
 
 def save_news(items):
-    """批量写入，url 唯一，重复跳过。返回实际新增条数"""
     conn = get_conn()
     before = conn.execute("SELECT COUNT(*) FROM news").fetchone()[0]
     for it in items:
@@ -44,7 +43,7 @@ def save_news(items):
                 (
                     it["title"],
                     it["url"],
-                    it["date"].isoformat() if it["date"] else None,
+                    it["date"].isoformat() if it.get("date") else None,
                     it["site"],
                     it.get("category", "其他"),
                     datetime.now().isoformat(),
@@ -59,7 +58,6 @@ def save_news(items):
 
 
 def query_news(days: int):
-    """查最近 N 天的新闻，按日期倒序"""
     cutoff = (datetime.now().date() - timedelta(days=days)).isoformat()
     conn = get_conn()
     rows = conn.execute(
