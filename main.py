@@ -3,22 +3,19 @@ import json
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime, timedelta
-
 from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.star import Context, Star
 from astrbot.api import logger
-
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-
-from db import init_db, save_news, query_news
-from spider import crawl_all
+# 已修改为相对导入
+from .db import init_db, save_news, query_news
+from .spider import crawl_all
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 UMO_FILE = DATA_DIR / "umo.json"
-
 CATEGORY_ORDER = ["重要", "科研竞赛", "研究生", "其他"]
 CATEGORY_LIMIT = {"重要": 10, "科研竞赛": 10, "研究生": 5, "其他": 10}
 NEW_DAYS = 3
@@ -44,11 +41,9 @@ def save_umo(umo):
 def build_ordered(items):
     today = datetime.now().date()
     new_cutoff = today - timedelta(days=NEW_DAYS)
-
     groups = defaultdict(list)
     for it in items:
         groups[it.get("category", "其他")].append(it)
-
     for cat in groups:
         groups[cat].sort(key=lambda x: x["date"] or "", reverse=True)
         limit = CATEGORY_LIMIT.get(cat, 10)
@@ -62,7 +57,6 @@ def build_ordered(items):
                     it["is_new"] = False
             else:
                 it["is_new"] = False
-
     ordered = []
     idx = 0
     for cat in CATEGORY_ORDER:
@@ -88,7 +82,6 @@ class YtuNewsPlugin(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
         init_db()
-
         self.scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
         self.scheduler.add_job(
             self.daily_job,
@@ -106,12 +99,10 @@ class YtuNewsPlugin(Star):
         except Exception as e:
             logger.error(f"[ytunews] 抓取失败: {e}")
             return
-
         img_url = await self._render_news_image()
         if not img_url:
             logger.warning("[ytunews] 渲染失败，跳过推送")
             return
-
         umos = load_umo()
         for umo in umos:
             try:
@@ -131,10 +122,8 @@ class YtuNewsPlugin(Star):
                     it["date"] = None
             else:
                 it["date"] = None
-
         if not items:
             return None
-
         ordered, groups = build_ordered(items)
         tmpl = (TEMPLATE_DIR / "news.html").read_text(encoding="utf-8")
         data = {
