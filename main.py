@@ -22,7 +22,7 @@ CATEGORY_LIMIT = {"重要": 10, "科研竞赛": 10, "研究生": 5, "其他": 10
 NEW_DAYS = 3
 FETCH_INTERVAL = 24 * 3600
 PUSH_HOUR = 21
-PUSH_MINUTE = 21
+PUSH_MINUTE = 30
 
 
 def load_umo():
@@ -157,7 +157,7 @@ class YtuNewsPlugin(Star):
             except Exception as e:
                 logger.error(f"[ytunews] 推送失败 {umo}: {e}")
 
-    async def _render_news_image(self, days: int = 3):
+    async def _render_news_image(self, days: int = None):
         items = db.query_news(days)
         for it in items:
             it["date"] = normalize_date(it.get("date"))
@@ -167,7 +167,7 @@ class YtuNewsPlugin(Star):
 
         ordered, groups = build_ordered(items)
 
-        # 关键：渲染前把 date 对象转成字符串，JSON 才能序列化
+        # 渲染前：date → str，JSON 才能序列化
         for cat in groups:
             for it in groups[cat]:
                 if isinstance(it["date"], date):
@@ -175,7 +175,7 @@ class YtuNewsPlugin(Star):
 
         tmpl = (TEMPLATE_DIR / "news.html").read_text(encoding="utf-8")
         data = {
-            "days": days,
+            "title": "全部新闻",
             "total": len(ordered),
             "now": datetime.now().strftime("%m-%d %H:%M"),
             "groups": {c: groups.get(c, []) for c in CATEGORY_ORDER},
@@ -186,20 +186,9 @@ class YtuNewsPlugin(Star):
     @filter.command("新闻")
     async def news(self, event: AstrMessageEvent):
         save_umo(event.unified_msg_origin)
-
-        raw = event.message_str.replace("/新闻", "").strip()
-        days = 3
-        try:
-            if "月" in raw:
-                days = int(raw.replace("月", "")) * 30
-            elif "天" in raw:
-                days = int(raw.replace("天", ""))
-        except ValueError:
-            days = 3
-
-        img_url = await self._render_news_image(days)
+        img_url = await self._render_news_image()
         if not img_url:
-            yield event.plain_result(f"最近 {days} 天没有新闻。")
+            yield event.plain_result("暂无新闻。")
             return
         yield event.image_result(img_url)
 
