@@ -9,15 +9,50 @@ from astrbot.api.star import Context, Star
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 CATEGORY_ORDER = ["重要", "科研竞赛", "研究生", "其他"]
 MAX_PER_CATEGORY = 8
+CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"
+
+
+def to_circled(n):
+    return CIRCLED[n - 1] if 1 <= n <= len(CIRCLED) else f"({n})"
+
+
+def build_ordered(items):
+    """按分类分组排序，给每条打上 idx / idx_str，返回 (ordered, groups)"""
+    groups = defaultdict(list)
+    for it in items:
+        groups[it.get("category", "其他")].append(it)
+
+    for cat in groups:
+        groups[cat].sort(key=lambda x: x["date"] or "", reverse=True)
+
+    ordered = []
+    idx = 0
+    for cat in CATEGORY_ORDER:
+        for it in groups.get(cat, []):
+            idx += 1
+            it["idx"] = idx
+            it["idx_str"] = to_circled(idx)
+            ordered.append(it)
+    return ordered, groups
+
+
+def calc_base_size(n):
+    """按总条数计算基础字号，避免图太长"""
+    if n <= 12:
+        return 15
+    if n <= 20:
+        return 14
+    if n <= 30:
+        return 13
+    return 12
 
 
 class TestRenderPlugin(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
 
-    @filter.command("测图片")
-    async def test_render(self, event: AstrMessageEvent):
-        items = [
+    def _fake_items(self):
+        return [
             # ── 重要 ──
             {"title": "关于开展2026年辅修双学位、辅修第二专业、微专业报名注册/注销工作的通知",
              "date": "2026-09-14", "category": "重要", "site": "教务处",
@@ -105,14 +140,11 @@ class TestRenderPlugin(Star):
              "url": "https://hospital.ytu.edu.cn/info/1213/1347.htm"},
         ]
 
-        # 按分类分组
-        groups = defaultdict(list)
-        for it in items:
-            groups[it["category"]].append(it)
-        for cat in groups:
-            groups[cat].sort(key=lambda x: x["date"], reverse=True)
+    @filter.command("测图片")
+    async def test_render(self, event: AstrMessageEvent):
+        items = self._fake_items()
+        ordered, groups = build_ordered(items)
 
-        # 渲染
         tmpl = (TEMPLATE_DIR / "news.html").read_text(encoding="utf-8")
         data = {
             "days": 3,
@@ -120,7 +152,26 @@ class TestRenderPlugin(Star):
             "now": datetime.now().strftime("%m-%d %H:%M"),
             "groups": {c: groups.get(c, []) for c in CATEGORY_ORDER},
             "max_per": MAX_PER_CATEGORY,
+            "base_size": calc_base_size(len(items)),   # 字号
         }
         img_url = await self.html_render(tmpl, data)
-
         yield event.image_result(img_url)
+
+    @filter.command("链接")
+    async def get_link(self, event: AstrMessageEvent):
+        raw = event.message_str.replace("/链接", "").strip()
+        try:
+            n = int(raw)
+        except ValueError:
+            yield event.plain_result("用法：/链接 3")
+            return
+
+        items = self._fake_items()
+        ordered, _ = build_ordered(items)
+
+        if n < 1 or n > len(ordered):
+            yield event.plain_result(f"编号超出范围，共 {len(ordered)} 条")
+            return
+
+        it = ordered[n - 1]
+        yield event.plain_result(f"{it['title']}\n来源：{it['site']}\n{it['url']}")
