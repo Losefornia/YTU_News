@@ -9,11 +9,6 @@ from astrbot.api.star import Context, Star
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 CATEGORY_ORDER = ["重要", "科研竞赛", "研究生", "其他"]
 MAX_PER_CATEGORY = 8
-CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"
-
-
-def to_circled(n):
-    return CIRCLED[n - 1] if 1 <= n <= len(CIRCLED) else f"({n})"
 
 
 def build_ordered(items):
@@ -31,7 +26,7 @@ def build_ordered(items):
         for it in groups.get(cat, []):
             idx += 1
             it["idx"] = idx
-            it["idx_str"] = to_circled(idx)
+            it["idx_str"] = f"{idx}."
             ordered.append(it)
     return ordered, groups
 
@@ -152,7 +147,7 @@ class TestRenderPlugin(Star):
             "now": datetime.now().strftime("%m-%d %H:%M"),
             "groups": {c: groups.get(c, []) for c in CATEGORY_ORDER},
             "max_per": MAX_PER_CATEGORY,
-            "base_size": calc_base_size(len(items)),   # 字号
+            "base_size": calc_base_size(len(items)),
         }
         img_url = await self.html_render(tmpl, data)
         yield event.image_result(img_url)
