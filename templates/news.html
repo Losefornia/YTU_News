@@ -7,6 +7,7 @@
   body {
     font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
     width: 820px;
+    margin: 0 auto;
     background: #1a1d24;
     color: #fff;
     font-size: {{ base_size }}px;
@@ -62,8 +63,8 @@
   .idx {
     color: #6cf;
     font-weight: bold;
-    font-size: 1.15em;
-    margin-right: 6px;
+    font-size: 1em;
+    margin-right: 8px;
   }
   .title {
     max-width: 640px;
@@ -79,13 +80,17 @@
     padding-left: 26px;
   }
   .row2 .site {
-    background: rgba(108, 204, 255, 0.15);
-    color: #6cf;
+    background: rgba(108, 204, 255, 0.10);
+    color: #8cd4ff;
     padding: 1px 8px;
     border-radius: 4px;
-    margin-right: 8px;
+    margin-right: 6px;
   }
-  .empty { color: #888; font-size: 0.9em; padding-left: 14px; }
+  .row2 .url {
+    color: #777;
+    font-size: 0.95em;
+  }
+  .empty { color: #888; font-size: 0.9em; padding-left: 14px; margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -108,6 +113,7 @@
         </div>
         <div class="row2">
           <span class="site">{{ it.site }}</span>
+          <span class="url">{{ it.url }}</span>
         </div>
       </div>
       {% endfor %}
