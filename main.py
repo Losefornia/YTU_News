@@ -1,25 +1,42 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 CATEGORY_ORDER = ["重要", "科研竞赛", "研究生", "其他"]
-MAX_PER_CATEGORY = 8
+MAX_PER_CATEGORY = 10
+LIMIT = 10                 # 固定显示最新 10 条
+NEW_DAYS = 3               # 最近 N 天算“新”
 
 
-def build_ordered(items):
-    """按分类分组排序，给每条打上 idx / idx_str，返回 (ordered, groups)"""
+def build_ordered(items, limit=LIMIT):
+    today = datetime.now().date()
+    new_cutoff = today - timedelta(days=NEW_DAYS)
+
+    # 全局按日期倒序
+    items = sorted(items, key=lambda x: x["date"] or "", reverse=True)
+    # 取最新 N 条
+    if limit:
+        items = items[:limit]
+
+    # 按分类分组 + 标记新旧
     groups = defaultdict(list)
     for it in items:
+        if it["date"]:
+            try:
+                d = datetime.fromisoformat(it["date"]).date()
+                it["is_new"] = d >= new_cutoff
+            except ValueError:
+                it["is_new"] = False
+        else:
+            it["is_new"] = False
         groups[it.get("category", "其他")].append(it)
 
-    for cat in groups:
-        groups[cat].sort(key=lambda x: x["date"] or "", reverse=True)
-
+    # 编号
     ordered = []
     idx = 0
     for cat in CATEGORY_ORDER:
@@ -32,13 +49,13 @@ def build_ordered(items):
 
 
 def calc_base_size(n):
-    if n <= 12:
-        return 24
-    if n <= 20:
+    if n <= 5:
         return 22
-    if n <= 30:
+    if n <= 10:
         return 20
-    return 18
+    if n <= 20:
+        return 18
+    return 16
 
 
 class TestRenderPlugin(Star):
@@ -142,11 +159,10 @@ class TestRenderPlugin(Star):
         tmpl = (TEMPLATE_DIR / "news.html").read_text(encoding="utf-8")
         data = {
             "days": 3,
-            "total": len(items),
+            "total": len(ordered),
             "now": datetime.now().strftime("%m-%d %H:%M"),
             "groups": {c: groups.get(c, []) for c in CATEGORY_ORDER},
-            "max_per": MAX_PER_CATEGORY,
-            "base_size": calc_base_size(len(items)),
+            "base_size": calc_base_size(len(ordered)),
         }
         img_url = await self.html_render(tmpl, data)
         yield event.image_result(img_url)
