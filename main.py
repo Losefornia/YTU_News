@@ -8,35 +8,37 @@ from astrbot.api.star import Context, Star
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 CATEGORY_ORDER = ["重要", "科研竞赛", "研究生", "其他"]
-MAX_PER_CATEGORY = 10
-LIMIT = 10                 # 固定显示最新 10 条
-NEW_DAYS = 3               # 最近 N 天算“新”
+CATEGORY_LIMIT = {
+    "重要": 10,
+    "科研竞赛": 10,
+    "研究生": 5,
+    "其他": 10,
+}
+NEW_DAYS = 3
 
 
-def build_ordered(items, limit=LIMIT):
+def build_ordered(items):
     today = datetime.now().date()
     new_cutoff = today - timedelta(days=NEW_DAYS)
 
-    # 全局按日期倒序
-    items = sorted(items, key=lambda x: x["date"] or "", reverse=True)
-    # 取最新 N 条
-    if limit:
-        items = items[:limit]
-
-    # 按分类分组 + 标记新旧
     groups = defaultdict(list)
     for it in items:
-        if it["date"]:
-            try:
-                d = datetime.fromisoformat(it["date"]).date()
-                it["is_new"] = d >= new_cutoff
-            except ValueError:
-                it["is_new"] = False
-        else:
-            it["is_new"] = False
         groups[it.get("category", "其他")].append(it)
 
-    # 编号
+    for cat in groups:
+        groups[cat].sort(key=lambda x: x["date"] or "", reverse=True)
+        limit = CATEGORY_LIMIT.get(cat, 10)
+        groups[cat] = groups[cat][:limit]
+        for it in groups[cat]:
+            if it["date"]:
+                try:
+                    d = datetime.fromisoformat(it["date"]).date()
+                    it["is_new"] = d >= new_cutoff
+                except ValueError:
+                    it["is_new"] = False
+            else:
+                it["is_new"] = False
+
     ordered = []
     idx = 0
     for cat in CATEGORY_ORDER:
@@ -49,11 +51,11 @@ def build_ordered(items, limit=LIMIT):
 
 
 def calc_base_size(n):
-    if n <= 5:
-        return 22
     if n <= 10:
-        return 20
+        return 22
     if n <= 20:
+        return 20
+    if n <= 30:
         return 18
     return 16
 
