@@ -22,7 +22,7 @@ CATEGORY_LIMIT = {"重要": 10, "科研竞赛": 10, "研究生": 5, "其他": 10
 NEW_DAYS = 3
 FETCH_INTERVAL = 24 * 3600          # 每 24 小时抓一次
 PUSH_HOUR = 20                       # 每天 20 点推送
-PUSH_MINUTE = 42                     # 20:42
+PUSH_MINUTE = 49                     # 20:42
 
 
 def load_umo():
