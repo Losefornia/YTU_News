@@ -8,12 +8,12 @@
     font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
     width: 1200px;
     margin: 0 auto;
-    background: #1a1d24;
+    background: #1a1d24 url("bg.jpg") center top / 1200px auto no-repeat;
     color: #fff;
     font-size: {{ base_size }}px;
   }
   .overlay {
-    background: rgba(0, 0, 0, 0.35);
+    background: rgba(0, 0, 0, 0.72);
     padding: 36px 40px 40px;
   }
   .header {
@@ -50,10 +50,18 @@
   }
   .item {
     display: block;
-    padding: 14px 0;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
+    padding: 12px 14px;
+    border-radius: 8px;
+    margin-bottom: 6px;
   }
-  .item:last-child { border-bottom: none; }
+  .item.new {
+    background: rgba(108, 204, 255, 0.15);
+    border-left: 3px solid #6cf;
+  }
+  .item.old {
+    background: rgba(255, 255, 255, 0.03);
+    border-left: 3px solid rgba(255,255,255,0.15);
+  }
   .row1 {
     display: flex;
     justify-content: space-between;
@@ -109,28 +117,23 @@
   <div class="meta">最近 {{ days }} 天 · {{ now }} · 回复 /链接 N 获取网址</div>
 
   {% for cat, items in groups.items() %}
+  {% if items %}
   <div class="cat">
     <div class="cat-title">{{ cat }}</div>
-    {% if items %}
-      {% for it in items[:max_per] %}
-      <div class="item">
-        <div class="row1">
-          <span class="title"><span class="idx">{{ it.idx_str }}</span>{{ it.title }}</span>
-          <span class="day">{{ it.date }}</span>
-        </div>
-        <div class="row2">
-          <span class="site">{{ it.site }}</span>
-          <span class="url">{{ it.url }}</span>
-        </div>
+    {% for it in items %}
+    <div class="item {% if it.is_new %}new{% else %}old{% endif %}">
+      <div class="row1">
+        <span class="title"><span class="idx">{{ it.idx_str }}</span>{{ it.title }}</span>
+        <span class="day">{{ it.date }}</span>
       </div>
-      {% endfor %}
-      {% if items|length > max_per %}
-      <div class="empty">…等共 {{ items|length }} 条</div>
-      {% endif %}
-    {% else %}
-      <div class="empty">（无）</div>
-    {% endif %}
+      <div class="row2">
+        <span class="site">{{ it.site }}</span>
+        <span class="url">{{ it.url }}</span>
+      </div>
+    </div>
+    {% endfor %}
   </div>
+  {% endif %}
   {% endfor %}
 </div>
 </body>
