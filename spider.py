@@ -6,8 +6,8 @@ from urllib.parse import urljoin
 import httpx
 from bs4 import BeautifulSoup
 
-from sites import SITES
-from utils import extract_date, parse_detail_date
+from .sites import SITES
+from .utils import extract_date, parse_detail_date
 
 HEADERS = {
     "User-Agent": (
@@ -33,7 +33,6 @@ def parse_list(html: str, site: dict):
     seen = set()
     for a in container.select(f'a[href*="{site["link_filter"]}"]'):
         title = a.get_text(" ", strip=True)
-        # 标题开头如果是日期，去掉
         title = re.sub(r'^\d{4}[-./年]\d{1,2}[-./月]\d{1,2}日?\s*', '', title).strip()
         if not title or len(title) < 4:
             continue
