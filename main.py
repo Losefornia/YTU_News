@@ -21,8 +21,8 @@ CATEGORY_ORDER = ["重要", "科研竞赛", "研究生", "其他"]
 CATEGORY_LIMIT = {"重要": 10, "科研竞赛": 10, "研究生": 5, "其他": 10}
 NEW_DAYS = 3
 FETCH_INTERVAL = 24 * 3600
-PUSH_HOUR = 21
-PUSH_MINUTE = 30
+PUSH_HOUR = 20
+PUSH_MINUTE = 59
 
 
 def load_umo():
@@ -44,7 +44,6 @@ def save_umo(umo):
 
 
 def normalize_date(d):
-    """把 DB 读出来的 date 统一成 datetime.date 或 None"""
     if isinstance(d, datetime):
         return d.date()
     if isinstance(d, date):
@@ -89,12 +88,12 @@ def build_ordered(items):
 
 def calc_base_size(n):
     if n <= 10:
-        return 22
+        return 26
     if n <= 20:
-        return 20
+        return 24
     if n <= 30:
-        return 18
-    return 16
+        return 22
+    return 20
 
 
 @register("astrbot_plugin_ytunews", "youwas936-design", "烟大新闻", "1.0.0", "")
@@ -167,7 +166,6 @@ class YtuNewsPlugin(Star):
 
         ordered, groups = build_ordered(items)
 
-        # 渲染前：date → str，JSON 才能序列化
         for cat in groups:
             for it in groups[cat]:
                 if isinstance(it["date"], date):
