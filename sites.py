@@ -9,11 +9,11 @@ SITES = [
         "link_filter": "/info/",
     },
     {
-        "name": "学生工作处",
-        "category": "重要",
+        "name": "学生工作处（武装部）",
+        "category": "其他",
         "list_url": "https://stu.ytu.edu.cn/index/tzgg.htm",
         "container": "div#right_nei",
-        "link_filter": "/info/",
+        "link_filter": "info/",
     },
     {
         "name": "科技处-科技动态",
@@ -42,5 +42,18 @@ SITES = [
         "list_url": "https://hospital.ytu.edu.cn/tzgg.htm",
         "container": "body",
         "link_filter": "info/",
+    },
+    {
+        "name": "就业信息网",
+        "category": "其他",
+        "type": "json",
+        "api_url": "https://school.gxjy.sdei.edu.cn/ytu/school/Notice/indexList/2",
+        "params": {"pageNum": 1, "pageSize": 10},
+        "title_field": "noticeTitle",
+        "date_field": "showtime",
+        "id_field": "noticeId",
+        "url_template": "https://school.gxjy.sdei.edu.cn/ytu/school/Notice/detail/{id}",
+        "fileurl_field": "fileurl",
+        "referer": "https://school.gxjy.sdei.edu.cn/ytu/front/NoticeList?deptId=2",
     },
 ]
