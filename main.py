@@ -3,7 +3,7 @@ import asyncio
 import json
 from pathlib import Path
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.star import Context, Star, register
@@ -20,9 +20,9 @@ UMO_FILE = DATA_DIR / "umo.json"
 CATEGORY_ORDER = ["重要", "科研竞赛", "研究生", "其他"]
 CATEGORY_LIMIT = {"重要": 10, "科研竞赛": 10, "研究生": 5, "其他": 10}
 NEW_DAYS = 3
-FETCH_INTERVAL = 24 * 3600          # 每 24 小时抓一次
-PUSH_HOUR = 21                       # 每天 20 点推送
-PUSH_MINUTE = 5                     # 20:42
+FETCH_INTERVAL = 24 * 3600
+PUSH_HOUR = 21
+PUSH_MINUTE = 18
 
 
 def load_umo():
@@ -56,12 +56,9 @@ def build_ordered(items):
         limit = CATEGORY_LIMIT.get(cat, 10)
         groups[cat] = groups[cat][:limit]
         for it in groups[cat]:
-            if it["date"]:
-                try:
-                    d = datetime.fromisoformat(it["date"]).date()
-                    it["is_new"] = d >= new_cutoff
-                except ValueError:
-                    it["is_new"] = False
+            d = it.get("date")
+            if isinstance(d, date):
+                it["is_new"] = d >= new_cutoff
             else:
                 it["is_new"] = False
 
@@ -86,6 +83,20 @@ def calc_base_size(n):
     return 16
 
 
+def normalize_date(d):
+    """把 DB 读出来的 date 统一成 datetime.date 或 None"""
+    if isinstance(d, date) and not isinstance(d, datetime):
+        return d
+    if isinstance(d, datetime):
+        return d.date()
+    if isinstance(d, str) and d:
+        try:
+            return datetime.fromisoformat(d).date()
+        except ValueError:
+            return None
+    return None
+
+
 @register("astrbot_plugin_ytunews", "youwas936-design", "烟大新闻", "1.0.0", "")
 class YtuNewsPlugin(Star):
     def __init__(self, context: Context):
@@ -106,9 +117,8 @@ class YtuNewsPlugin(Star):
             self._push_task.cancel()
         logger.info("👋 烟大新闻插件已卸载")
 
-    # ---------- 抓取循环 ----------
     async def _fetch_loop(self):
-        await asyncio.sleep(30)          # 启动后等 30 秒再抓
+        await asyncio.sleep(30)
         while True:
             try:
                 items = await spider.crawl_all()
@@ -118,7 +128,6 @@ class YtuNewsPlugin(Star):
                 logger.warning(f"[ytunews] 抓取异常: {e}")
             await asyncio.sleep(FETCH_INTERVAL)
 
-    # ---------- 推送循环 ----------
     async def _push_loop(self):
         while True:
             now = datetime.now()
@@ -148,17 +157,10 @@ class YtuNewsPlugin(Star):
             except Exception as e:
                 logger.error(f"[ytunews] 推送失败 {umo}: {e}")
 
-    # ---------- 渲染图片 ----------
     async def _render_news_image(self, days: int = 3):
         items = db.query_news(days)
         for it in items:
-            if it["date"]:
-                try:
-                    it["date"] = datetime.fromisoformat(it["date"]).date()
-                except ValueError:
-                    it["date"] = None
-            else:
-                it["date"] = None
+            it["date"] = normalize_date(it.get("date"))
 
         if not items:
             return None
@@ -174,7 +176,6 @@ class YtuNewsPlugin(Star):
         }
         return await self.html_render(tmpl, data)
 
-    # ---------- 指令 ----------
     @filter.command("新闻")
     async def news(self, event: AstrMessageEvent):
         save_umo(event.unified_msg_origin)
