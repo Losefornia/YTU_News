@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    width: 820px;
+    background: #1a1d24;
+    color: #fff;
+  }
+  .overlay {
+    background: rgba(0, 0, 0, 0.35);
+    padding: 28px 32px 32px;
+  }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .header h1 { font-size: 34px; letter-spacing: 2px; }
+  .header .count {
+    background: rgba(255,255,255,0.18);
+    border-radius: 12px;
+    padding: 10px 22px;
+    font-size: 30px;
+    font-weight: bold;
+  }
+  .meta {
+    color: #cfcfcf;
+    font-size: 14px;
+    margin-bottom: 22px;
+  }
+  .cat {
+    background: rgba(255,255,255,0.10);
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin-bottom: 14px;
+  }
+  .cat-title {
+    font-size: 18px;
+    font-weight: bold;
+    border-left: 4px solid #6cf;
+    padding-left: 10px;
+    margin-bottom: 12px;
+  }
+  .item {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 15px;
+    padding: 7px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .item:last-child { border-bottom: none; }
+  .item .title {
+    max-width: 620px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .item .day { color: #aaa; font-size: 13px; flex-shrink: 0; margin-left: 12px; }
+  .empty { color: #888; font-size: 14px; padding-left: 14px; }
+</style>
+</head>
+<body>
+<div class="overlay">
+  <div class="header">
+    <h1>📢 烟大新闻</h1>
+    <div class="count">{{ total }}</div>
+  </div>
+  <div class="meta">最近 {{ days }} 天 · {{ now }}</div>
+
+  {% for cat, items in groups.items() %}
+  <div class="cat">
+    <div class="cat-title">{{ cat }}</div>
+    {% if items %}
+      {% for it in items[:max_per] %}
+      <div class="item">
+        <span class="title">{{ it.title }}</span>
+        <span class="day">{{ it.date }}</span>
+      </div>
+      {% endfor %}
+      {% if items|length > max_per %}
+      <div class="empty">…等共 {{ items|length }} 条</div>
+      {% endif %}
+    {% else %}
+      <div class="empty">（无）</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+</body>
+</html>
