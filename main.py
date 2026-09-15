@@ -18,7 +18,7 @@ DATA_DIR.mkdir(exist_ok=True)
 UMO_FILE = DATA_DIR / "umo.json"
 
 CATEGORY_ORDER = ["重要", "科研竞赛", "研究生", "其他"]
-CATEGORY_LIMIT = {"重要": 10, "科研竞赛": 10, "研究生": 5, "其他": 10}
+CATEGORY_LIMIT = {"重要": 10, "科研竞赛": 15, "研究生": 5, "其他": 25}
 NEW_DAYS = 3
 FETCH_INTERVAL = 24 * 3600
 PUSH_HOUR = 11
