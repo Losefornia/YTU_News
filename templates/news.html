@@ -114,7 +114,7 @@
     <h1>📢 烟大新闻</h1>
     <div class="count">{{ total }}</div>
   </div>
-  <div class="meta">最近 {{ days }} 天 · {{ now }} · 回复 /链接 N 获取网址</div>
+  <div class="meta">{{ title }} · {{ now }}</div>
 
   {% for cat, items in groups.items() %}
   {% if items %}
