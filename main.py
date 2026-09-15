@@ -32,14 +32,14 @@ def build_ordered(items):
 
 
 def calc_base_size(n):
-    """按总条数计算基础字号，避免图太长"""
+    """按总条数计算基础字号"""
     if n <= 12:
-        return 15
+        return 20
     if n <= 20:
-        return 14
+        return 18
     if n <= 30:
-        return 13
-    return 12
+        return 17
+    return 15
 
 
 class TestRenderPlugin(Star):
