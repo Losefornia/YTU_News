@@ -21,8 +21,8 @@ CATEGORY_ORDER = ["重要", "科研竞赛", "研究生", "其他"]
 CATEGORY_LIMIT = {"重要": 10, "科研竞赛": 10, "研究生": 5, "其他": 10}
 NEW_DAYS = 3
 FETCH_INTERVAL = 24 * 3600
-PUSH_HOUR = 21
-PUSH_MINUTE = 36
+PUSH_HOUR = 11
+PUSH_MINUTE = 59
 
 
 def load_umo():
