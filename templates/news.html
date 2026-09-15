@@ -47,21 +47,43 @@
     margin-bottom: 12px;
   }
   .item {
+    display: block;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .item:last-child { border-bottom: none; }
+  .row1 {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
     font-size: 15px;
-    padding: 7px 0;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
   }
-  .item:last-child { border-bottom: none; }
-  .item .title {
-    max-width: 620px;
+  .idx {
+    color: #6cf;
+    font-weight: bold;
+    font-size: 17px;
+    margin-right: 6px;
+  }
+  .title {
+    max-width: 640px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .item .day { color: #aaa; font-size: 13px; flex-shrink: 0; margin-left: 12px; }
+  .day { color: #aaa; font-size: 13px; flex-shrink: 0; margin-left: 12px; }
+  .row2 {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #999;
+    padding-left: 26px;
+  }
+  .row2 .site {
+    background: rgba(108, 204, 255, 0.15);
+    color: #6cf;
+    padding: 1px 8px;
+    border-radius: 4px;
+    margin-right: 8px;
+  }
   .empty { color: #888; font-size: 14px; padding-left: 14px; }
 </style>
 </head>
@@ -71,7 +93,7 @@
     <h1>📢 烟大新闻</h1>
     <div class="count">{{ total }}</div>
   </div>
-  <div class="meta">最近 {{ days }} 天 · {{ now }}</div>
+  <div class="meta">最近 {{ days }} 天 · {{ now }} · 回复 /链接 N 获取网址</div>
 
   {% for cat, items in groups.items() %}
   <div class="cat">
@@ -79,8 +101,13 @@
     {% if items %}
       {% for it in items[:max_per] %}
       <div class="item">
-        <span class="title">{{ it.title }}</span>
-        <span class="day">{{ it.date }}</span>
+        <div class="row1">
+          <span class="title"><span class="idx">{{ it.idx_str }}</span>{{ it.title }}</span>
+          <span class="day">{{ it.date }}</span>
+        </div>
+        <div class="row2">
+          <span class="site">{{ it.site }}</span>
+        </div>
       </div>
       {% endfor %}
       {% if items|length > max_per %}
@@ -92,5 +119,18 @@
   </div>
   {% endfor %}
 </div>
+
+<script>
+window.onload = function () {
+  const body = document.body;
+  const maxHeight = 2000;
+  let scale = 1;
+  while (body.scrollHeight > maxHeight && scale > 0.5) {
+    scale -= 0.05;
+    body.style.transform = `scale(${scale})`;
+    body.style.transformOrigin = "top left";
+  }
+};
+</script>
 </body>
 </html>
