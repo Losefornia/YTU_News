@@ -57,13 +57,18 @@ def save_news(items):
     return after - before
 
 
-def query_news(days: int):
-    cutoff = (datetime.now().date() - timedelta(days=days)).isoformat()
+def query_news(days: int = None):
     conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM news WHERE date >= ? ORDER BY date DESC",
-        (cutoff,),
-    ).fetchall()
+    if days is None:
+        rows = conn.execute(
+            "SELECT * FROM news ORDER BY date DESC"
+        ).fetchall()
+    else:
+        cutoff = (datetime.now().date() - timedelta(days=days)).isoformat()
+        rows = conn.execute(
+            "SELECT * FROM news WHERE date >= ? ORDER BY date DESC",
+            (cutoff,),
+        ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
