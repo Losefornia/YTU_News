@@ -22,7 +22,7 @@ CATEGORY_LIMIT = {"重要": 10, "科研竞赛": 10, "研究生": 5, "其他": 10
 NEW_DAYS = 3
 FETCH_INTERVAL = 24 * 3600
 PUSH_HOUR = 21
-PUSH_MINUTE = 18
+PUSH_MINUTE = 21
 
 
 def load_umo():
@@ -41,6 +41,20 @@ def save_umo(umo):
         UMO_FILE.write_text(
             json.dumps(lst, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+
+
+def normalize_date(d):
+    """把 DB 读出来的 date 统一成 datetime.date 或 None"""
+    if isinstance(d, datetime):
+        return d.date()
+    if isinstance(d, date):
+        return d
+    if isinstance(d, str) and d:
+        try:
+            return datetime.fromisoformat(d).date()
+        except ValueError:
+            return None
+    return None
 
 
 def build_ordered(items):
@@ -81,20 +95,6 @@ def calc_base_size(n):
     if n <= 30:
         return 18
     return 16
-
-
-def normalize_date(d):
-    """把 DB 读出来的 date 统一成 datetime.date 或 None"""
-    if isinstance(d, date) and not isinstance(d, datetime):
-        return d
-    if isinstance(d, datetime):
-        return d.date()
-    if isinstance(d, str) and d:
-        try:
-            return datetime.fromisoformat(d).date()
-        except ValueError:
-            return None
-    return None
 
 
 @register("astrbot_plugin_ytunews", "youwas936-design", "烟大新闻", "1.0.0", "")
@@ -166,6 +166,13 @@ class YtuNewsPlugin(Star):
             return None
 
         ordered, groups = build_ordered(items)
+
+        # 关键：渲染前把 date 对象转成字符串，JSON 才能序列化
+        for cat in groups:
+            for it in groups[cat]:
+                if isinstance(it["date"], date):
+                    it["date"] = it["date"].strftime("%Y-%m-%d")
+
         tmpl = (TEMPLATE_DIR / "news.html").read_text(encoding="utf-8")
         data = {
             "days": days,
