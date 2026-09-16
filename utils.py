@@ -4,13 +4,20 @@ from datetime import datetime
 
 DATE_PATTERN = re.compile(r'(\d{4})[-./年](\d{1,2})[-./月](\d{1,2})')
 URL_DATE_PATTERN = re.compile(r'/(\d{4})/(\d{2})(\d{2})/')
+
+# 优先级 1：时间：2026年09月16日
 DETAIL_DATE_PATTERN = re.compile(r'时间[:：]\s*(\d{4})年(\d{1,2})月(\d{1,2})日')
+# 优先级 2：发布时间 / 时间 + 连字符 / 斜杠 / 点
+PUBDATE_PATTERN = re.compile(
+    r'(?:发布时间|发布日期|时间)[:：]\s*(\d{4})[-./年](\d{1,2})[-./月](\d{1,2})'
+)
+# 优先级 3：meta PubDate
+META_PUBDATE_PATTERN = re.compile(
+    r'<meta[^>]+name=["\']PubDate["\'][^>]+content=["\'](\d{4})[-/](\d{1,2})[-/](\d{1,2})'
+)
 
 
-def parse_date_text(text: str):
-    if not text:
-        return None
-    m = DATE_PATTERN.search(text)
+def _parse_match(m):
     if not m:
         return None
     y, mo, d = m.groups()
@@ -20,16 +27,28 @@ def parse_date_text(text: str):
         return None
 
 
+def parse_date_text(text: str):
+    if not text:
+        return None
+    return _parse_match(DATE_PATTERN.search(text))
+
+
 def parse_detail_date(html: str):
     if not html:
         return None
-    m = DETAIL_DATE_PATTERN.search(html)
-    if m:
-        y, mo, d = m.groups()
-        try:
-            return datetime(int(y), int(mo), int(d)).date()
-        except ValueError:
-            pass
+    # 优先级 1
+    d = _parse_match(DETAIL_DATE_PATTERN.search(html))
+    if d:
+        return d
+    # 优先级 2
+    d = _parse_match(PUBDATE_PATTERN.search(html))
+    if d:
+        return d
+    # 优先级 3
+    d = _parse_match(META_PUBDATE_PATTERN.search(html))
+    if d:
+        return d
+    # 优先级 4：全文兜底
     return parse_date_text(html)
 
 
