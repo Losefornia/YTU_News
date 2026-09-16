@@ -54,14 +54,35 @@
     border-radius: 8px;
     margin-bottom: 6px;
   }
+
+  /* 最近 3 天：亮蓝 */
   .item.new {
-    background: rgba(108, 204, 255, 0.15);
-    border-left: 3px solid #6cf;
+    background: rgba(108, 204, 255, 0.22);
+    border-left: 4px solid #6cf;
   }
+  /* 最近 1 个月：暖黄 */
+  .item.recent {
+    background: rgba(255, 214, 102, 0.12);
+    border-left: 4px solid #ffd666;
+  }
+  /* 更早：冷灰 */
   .item.old {
     background: rgba(255, 255, 255, 0.03);
-    border-left: 3px solid rgba(255,255,255,0.15);
+    border-left: 4px solid rgba(255,255,255,0.15);
   }
+  /* 无日期：最淡 */
+  .item.none {
+    background: rgba(255, 255, 255, 0.02);
+    border-left: 4px solid rgba(255,255,255,0.08);
+    opacity: 0.7;
+  }
+
+  /* 日期文字随档位变色 */
+  .item.new   .day { color: #6cf;     font-weight: bold; }
+  .item.recent .day { color: #ffd666; }
+  .item.old   .day { color: #aaa; }
+  .item.none  .day { color: #888; }
+
   .row1 {
     display: flex;
     justify-content: space-between;
@@ -106,6 +127,15 @@
     max-width: 800px;
   }
   .empty { color: #888; font-size: 0.9em; padding-left: 16px; margin-top: 8px; }
+
+  /* 底部小字 */
+  .footer-note {
+    margin-top: 24px;
+    text-align: center;
+    font-size: 0.75em;
+    color: #888;
+    letter-spacing: 1px;
+  }
 </style>
 </head>
 <body>
@@ -121,7 +151,7 @@
   <div class="cat">
     <div class="cat-title">{{ cat }}</div>
     {% for it in items %}
-    <div class="item {% if it.is_new %}new{% else %}old{% endif %}">
+    <div class="item {{ it.freshness }}">
       <div class="row1">
         <span class="title"><span class="idx">{{ it.idx_str }}</span>{{ it.title }}</span>
         <span class="day">{{ it.date }}</span>
@@ -135,6 +165,10 @@
   </div>
   {% endif %}
   {% endfor %}
+
+  <div class="footer-note">
+    {{ footer_note }} · 抖音号：{{ douyin_id }}
+  </div>
 </div>
 </body>
 </html>
