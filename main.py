@@ -88,12 +88,12 @@ def build_ordered(items):
 
 def calc_base_size(n):
     if n <= 10:
-        return 26
+        return 32
     if n <= 20:
-        return 24
+        return 30
     if n <= 30:
-        return 22
-    return 20
+        return 28
+    return 26
 
 
 @register("astrbot_plugin_ytunews", "youwas936-design", "烟大新闻", "1.0.0", "")
