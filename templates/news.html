@@ -36,84 +36,57 @@
     margin-bottom: 26px;
   }
 
-  /* ===== 分类卡片：每个分类不同颜色 ===== */
+  /* ===== 分类：无背景，只有标题颜色区分 ===== */
   .cat {
-    border-radius: 14px;
-    padding: 20px 24px;
-    margin-bottom: 18px;
+    background: transparent;
+    border-radius: 0;
+    padding: 12px 0 8px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   }
   .cat-title {
     font-size: 1.3em;
     font-weight: bold;
     border-left: 4px solid #888;
     padding-left: 12px;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }
 
   /* 重要：红色 */
-  .cat-important {
-    background: rgba(255, 107, 107, 0.08);
-    border-left: 4px solid #ff6b6b;
-  }
-  .cat-important .cat-title { border-left-color: #ff6b6b; color: #ff9b9b; }
-
+  .cat-important .cat-title { border-left-color: #ff5252; color: #ff5252; }
   /* 科研竞赛：青色 */
-  .cat-research {
-    background: rgba(77, 208, 225, 0.08);
-    border-left: 4px solid #4dd0e1;
-  }
-  .cat-research .cat-title { border-left-color: #4dd0e1; color: #7ee4f0; }
-
+  .cat-research  .cat-title { border-left-color: #26c6da; color: #26c6da; }
   /* 研究生：紫色 */
-  .cat-graduate {
-    background: rgba(180, 140, 255, 0.08);
-    border-left: 4px solid #b48cff;
-  }
-  .cat-graduate .cat-title { border-left-color: #b48cff; color: #c9aaff; }
-
+  .cat-graduate  .cat-title { border-left-color: #9c6bff; color: #9c6bff; }
   /* 其他：灰蓝 */
-  .cat-other {
-    background: rgba(122, 140, 168, 0.08);
-    border-left: 4px solid #7a8ca8;
-  }
-  .cat-other .cat-title { border-left-color: #7a8ca8; color: #a0b0c8; }
+  .cat-other     .cat-title { border-left-color: #8a9cb8; color: #8a9cb8; }
 
-  /* ===== 条目：新鲜度靠左边竖线区分 ===== */
+  /* ===== 条目：只靠左边竖线区分新鲜度 ===== */
   .item {
     display: block;
-    padding: 10px 14px;
+    padding: 10px 0 10px 14px;
     border-radius: 0;
     margin-bottom: 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    border-left: 3px solid transparent;
     background: transparent;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    border-left: 3px solid transparent;
   }
   .item:last-child { border-bottom: none; }
 
   /* 最近 3 天：绿 */
-  .item.new {
-    border-left-color: #5fd38d;
-    background: rgba(95, 211, 141, 0.08);
-  }
+  .item.new    { border-left-color: #3ddb7c; }
   /* 最近 1 个月：蓝 */
-  .item.recent {
-    border-left-color: #6cf;
-    background: rgba(108, 204, 255, 0.06);
-  }
+  .item.recent { border-left-color: #4db8ff; }
   /* 更早：灰 */
-  .item.old {
-    border-left-color: rgba(255, 255, 255, 0.15);
-  }
+  .item.old    { border-left-color: rgba(255, 255, 255, 0.2); }
   /* 无日期：淡灰 */
-  .item.none {
-    border-left-color: rgba(255, 255, 255, 0.08);
-    opacity: 0.7;
-  }
+  .item.none   { border-left-color: rgba(255, 255, 255, 0.1); opacity: 0.7; }
 
-  .item.new    .day { color: #5fd38d; font-weight: bold; }
-  .item.recent .day { color: #6cf; }
-  .item.old    .day { color: #aaa; }
-  .item.none   .day { color: #888; }
+  /* 日期颜色加深 */
+  .item.new    .day { color: #3ddb7c; font-weight: bold; }
+  .item.recent .day { color: #4db8ff; }
+  .item.old    .day { color: #bbb; }
+  .item.none   .day { color: #999; }
 
   .row1 {
     display: flex;
