@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import re
+from collections import Counter
 from datetime import datetime
 from urllib.parse import urljoin
 
@@ -56,7 +57,15 @@ def parse_list(html: str, site: dict):
     return items
 
 
+def find_suspicious(items, threshold: int = 3):
+    """同一站点同一日期出现 >= threshold 条，怀疑列表页日期是统一的。"""
+    dates = Counter(it["date"] for it in items if it["date"])
+    suspicious = {d for d, c in dates.items() if c >= threshold}
+    return [it for it in items if it["date"] in suspicious]
+
+
 async def fill_missing_dates(client, items):
+    """列表页没日期的，去详情页补。"""
     for it in items:
         if it["date"] is not None:
             continue
@@ -71,6 +80,21 @@ async def fill_missing_dates(client, items):
     return items
 
 
+async def verify_suspicious_dates(client, items):
+    """可疑日期的条目，去详情页核对，详情页优先、列表页兜底。"""
+    for it in find_suspicious(items):
+        fallback = it["date"]
+        try:
+            html = await fetch(client, it["url"])
+            d = parse_detail_date(html)
+            it["date"] = d or fallback
+        except Exception as e:
+            print(f"[WARN] 详情页失败 {it['url']}: {e}")
+            it["date"] = fallback
+        await asyncio.sleep(0.3)
+    return items
+
+
 async def crawl_site(client, site):
     if site.get("type") == "json":
         return await crawl_json_site(client, site)
@@ -80,10 +104,13 @@ async def crawl_site(client, site):
     except Exception as e:
         print(f"[ERR] {site['name']} 抓取失败: {e}")
         return []
+
     items = parse_list(html, site)
 
     if any(it["date"] is None for it in items):
         items = await fill_missing_dates(client, items)
+
+    items = await verify_suspicious_dates(client, items)
 
     print(f"[OK] {site['name']}: 抓到 {len(items)} 条，"
           f"日期缺失 {sum(1 for i in items if i['date'] is None)} 条")
