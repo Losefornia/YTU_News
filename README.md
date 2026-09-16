@@ -1,14 +1,28 @@
-# astrbot-plugin-helloworld
+# astrbot_plugin_ytunews · 烟大新闻
 
-AstrBot 插件模板 / A template plugin for AstrBot plugin feature
+一个为 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 打造的**烟台大学新闻聚合插件**。
 
-> [!NOTE]
-> This repo is just a template of [AstrBot](https://github.com/AstrBotDevs/AstrBot) Plugin.
-> 
-> [AstrBot](https://github.com/AstrBotDevs/AstrBot) is an agentic assistant for both personal and group conversations. It can be deployed across dozens of mainstream instant messaging platforms, including QQ, Telegram, Feishu, DingTalk, Slack, LINE, Discord, Matrix, etc. In addition, it provides a reliable and extensible conversational AI infrastructure for individuals, developers, and teams. Whether you need a personal AI companion, an intelligent customer support agent, an automation assistant, or an enterprise knowledge base, AstrBot enables you to quickly build AI applications directly within your existing messaging workflows.
+自动抓取烟台大学各学院 / 部门官网的通知公告，按分类整理后**渲染成一张图片**，支持手动查看和每日定时推送。
 
-# Supports
+---
 
-- [AstrBot Repo](https://github.com/AstrBotDevs/AstrBot)
-- [AstrBot Plugin Development Docs (Chinese)](https://docs.astrbot.app/dev/star/plugin-new.html)
-- [AstrBot Plugin Development Docs (English)](https://docs.astrbot.app/en/dev/star/plugin-new.html)
+## ✨ 功能
+
+- 🔍 **自动抓取**：定时爬取烟台大学各站点通知公告（教务处、科研处、研究生处、学生工作处等）
+- 🗂️ **分类整理**：按「重要 / 科研竞赛 / 研究生 / 其他」四类归组
+- 🎨 **新鲜度着色**：
+  - 🟦 亮蓝 = 最近 3 天
+  - 🟨 暖黄 = 最近 1 个月
+  - ⬜ 灰 = 更早
+  - ⚪ 淡灰 = 无日期
+- 🖼️ **图片渲染**：用 HTML 模板渲染成一张长图，适合手机查看
+- ⏰ **每日推送**：每天 11:59 自动推送到已绑定的会话
+- 📌 **手动查询**：发送 `/新闻` 随时查看
+
+---
+
+## 📦 安装
+
+### 1. 下载插件
+
+把本仓库放到 AstrBot 的插件目录：
