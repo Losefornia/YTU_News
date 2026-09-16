@@ -58,7 +58,8 @@ def normalize_date(d):
 
 def build_ordered(items):
     today = datetime.now().date()
-    new_cutoff = today - timedelta(days=NEW_DAYS)
+    new_cutoff = today - timedelta(days=NEW_DAYS)      # 3 天
+    month_cutoff = today - timedelta(days=30)          # 30 天
 
     groups = defaultdict(list)
     for it in items:
@@ -70,10 +71,14 @@ def build_ordered(items):
         groups[cat] = groups[cat][:limit]
         for it in groups[cat]:
             d = it.get("date")
-            if isinstance(d, date):
-                it["is_new"] = d >= new_cutoff
+            if not isinstance(d, date):
+                it["freshness"] = "none"
+            elif d >= new_cutoff:
+                it["freshness"] = "new"
+            elif d >= month_cutoff:
+                it["freshness"] = "recent"
             else:
-                it["is_new"] = False
+                it["freshness"] = "old"
 
     ordered = []
     idx = 0
@@ -88,12 +93,12 @@ def build_ordered(items):
 
 def calc_base_size(n):
     if n <= 10:
-        return 32
+        return 34
     if n <= 20:
-        return 30
+        return 32
     if n <= 30:
-        return 28
-    return 26
+        return 30
+    return 28
 
 
 @register("astrbot_plugin_ytunews", "youwas936-design", "烟大新闻", "1.0.0", "")
@@ -175,9 +180,11 @@ class YtuNewsPlugin(Star):
         data = {
             "title": "全部新闻",
             "total": len(ordered),
-            "now": datetime.now().strftime("%m-%d %H:%M"),
+            "now": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "groups": {c: groups.get(c, []) for c in CATEGORY_ORDER},
             "base_size": calc_base_size(len(ordered)),
+            "footer_note": "数据来源于烟台大学各学院官网，仅供参考",
+            "douyin_id": "47780260687",
         }
         return await self.html_render(tmpl, data)
 
