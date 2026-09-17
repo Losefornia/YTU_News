@@ -1,86 +1,67 @@
 # -*- coding: utf-8 -*-
 import re
-from datetime import date, datetime
-from typing import Optional
+from datetime import datetime
 
-DATE_PATTERN = re.compile(r'(\d{4})\s*[-./年]\s*(\d{1,2})\s*[-./月]\s*(\d{1,2})\s*日?')
+DATE_PATTERN = re.compile(r'(\d{4})[-./年](\d{1,2})[-./月](\d{1,2})')
+URL_DATE_PATTERN = re.compile(r'/(\d{4})/(\d{2})(\d{2})/')
 
-URL_DATE_PATTERN = re.compile(
-    r'/(\d{4})/(\d{2})(\d{2})/|'
-    r'/(\d{4})/(\d{2})/(\d{2})/|'
-    r'/(\d{4})(\d{2})(\d{2})/'
+# 优先级 1：时间：2026年09月16日
+DETAIL_DATE_PATTERN = re.compile(r'时间[:：]\s*(\d{4})年(\d{1,2})月(\d{1,2})日')
+# 优先级 2：发布时间 / 时间 + 连字符 / 斜杠 / 点
+PUBDATE_PATTERN = re.compile(
+    r'(?:发布时间|发布日期|时间)[:：]\s*(\d{4})[-./年](\d{1,2})[-./月](\d{1,2})'
 )
-
-DETAIL_DATE_PATTERN = re.compile(
-    r'(?:时间|发布时间|发布日期|发表时间|更新日期)\s*[:：]\s*'
-    r'(\d{4})\s*[-./年]\s*(\d{1,2})\s*[-./月]\s*(\d{1,2})\s*日?'
-)
-
+# 优先级 3：meta PubDate
 META_PUBDATE_PATTERN = re.compile(
-    r'<meta[^>]+(?:name|property)=["\'](?:PubDate|pubdate|article:published_time|'
-    r'og:published_time|publishdate)["\'][^>]+content=["\']'
-    r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})',
-    re.IGNORECASE,
+    r'<meta[^>]+name=["\']PubDate["\'][^>]+content=["\'](\d{4})[-/](\d{1,2})[-/](\d{1,2})'
 )
 
-MIN_YEAR = 2000
 
-
-def _safe_date(y: int, m: int, d: int) -> Optional[date]:
-    if not (MIN_YEAR <= y <= date.today().year + 1):
+def _parse_match(m):
+    if not m:
         return None
+    y, mo, d = m.groups()
     try:
-        return date(y, m, d)
+        return datetime(int(y), int(mo), int(d)).date()
     except ValueError:
         return None
 
 
-def _parse_match(m) -> Optional[date]:
-    if not m:
-        return None
-    groups = m.groups()
-    if len(groups) == 9:
-        for i in range(0, 9, 3):
-            if groups[i]:
-                return _safe_date(int(groups[i]), int(groups[i + 1]), int(groups[i + 2]))
-        return None
-    y, mo, d = groups[:3]
-    return _safe_date(int(y), int(mo), int(d))
-
-
-def parse_date_text(text: str) -> Optional[date]:
+def parse_date_text(text: str):
     if not text:
         return None
-    for m in DATE_PATTERN.finditer(text):
-        d = _parse_match(m)
-        if d:
-            return d
-    return None
+    return _parse_match(DATE_PATTERN.search(text))
 
 
-def parse_detail_date(html: str) -> Optional[date]:
+def parse_detail_date(html: str):
     if not html:
         return None
+    # 优先级 1
     d = _parse_match(DETAIL_DATE_PATTERN.search(html))
     if d:
         return d
+    # 优先级 2
+    d = _parse_match(PUBDATE_PATTERN.search(html))
+    if d:
+        return d
+    # 优先级 3
     d = _parse_match(META_PUBDATE_PATTERN.search(html))
     if d:
         return d
-    return parse_date_text(html[:20000])
+    # 优先级 4：全文兜底
+    return parse_date_text(html)
 
 
-def extract_date(a_tag, site: dict) -> Optional[date]:
+def extract_date(a_tag, site: dict):
     sel = site.get("date_selector")
     if sel:
-        for scope in (a_tag, a_tag.parent):
-            if scope is None:
-                continue
-            node = scope.find(sel)
-            if node:
-                d = parse_date_text(node.get_text(" ", strip=True))
-                if d:
-                    return d
+        node = a_tag.find(sel)
+        if not node and a_tag.parent:
+            node = a_tag.parent.find(sel)
+        if node:
+            d = parse_date_text(node.get_text(" ", strip=True))
+            if d:
+                return d
 
     d = parse_date_text(a_tag.get_text(" ", strip=True))
     if d:
@@ -91,7 +72,7 @@ def extract_date(a_tag, site: dict) -> Optional[date]:
         if d:
             return d
 
-    for sib in (a_tag.find_previous_sibling(), a_tag.find_next_sibling()):
+    for sib in [a_tag.find_next_sibling(), a_tag.find_previous_sibling()]:
         if sib:
             d = parse_date_text(sib.get_text(" ", strip=True))
             if d:
@@ -100,6 +81,10 @@ def extract_date(a_tag, site: dict) -> Optional[date]:
     href = a_tag.get("href", "") or ""
     m = URL_DATE_PATTERN.search(href)
     if m:
-        return _parse_match(m)
+        y, mo, d_ = m.groups()
+        try:
+            return datetime(int(y), int(mo), int(d_)).date()
+        except ValueError:
+            pass
 
     return None
