@@ -35,7 +35,6 @@ _seen_lock = asyncio.Lock()
 # ==================== 群列表读写 ====================
 
 def load_seen():
-    """返回用过的群 UMO 列表。"""
     if SEEN_FILE.exists():
         try:
             data = json.loads(SEEN_FILE.read_text(encoding="utf-8"))
@@ -55,7 +54,6 @@ def save_seen(lst):
 
 
 async def remember_group(umo: str):
-    """自动记录用过的群。"""
     async with _seen_lock:
         seen = load_seen()
         if umo not in seen:
@@ -203,14 +201,15 @@ class YtuNewsPlugin(Star):
                 logger.error(f"[ytunews] 定时推送异常: {e}")
 
     async def _push_daily(self):
-        """每天 12 点推送：覆盖上次推送到现在的新增。
-        有新增 → @全体 + 文字列表 + 图片
+        """每天 12 点推送。
+        有新增 → @everyone + 文字列表 + 图片
         无新增 → 普通消息 + "今日无新增" + 图片
         """
         now = datetime.now()
         last_push = db.get_last_push()
         since = last_push if last_push else (now - timedelta(days=1))
-        date_cutoff = (now - timedelta(days=30)).date()
+        # 只推最近 1 天内发布的新闻
+        date_cutoff = (now - timedelta(days=1)).date()
 
         new_items = db.query_unpushed(since, date_cutoff=date_cutoff, limit=PUSH_LIMIT)
         today = now.strftime("%m月%d日")
@@ -252,7 +251,8 @@ class YtuNewsPlugin(Star):
 
         for umo in targets:
             try:
-                full_text = f"<qqbot-at-all />\n{text}" if has_new else text
+                # 【改】QQ 官方 Bot 群聊 @全体成员用 @everyone
+                full_text = f"@everyone\n{text}" if has_new else text
                 if img_url:
                     chain = MessageChain(chain=[Plain(full_text), Image.fromURL(img_url)])
                 else:
@@ -260,7 +260,7 @@ class YtuNewsPlugin(Star):
                 await self.context.send_message(umo, chain)
                 logger.info(
                     f"[ytunews] 推送到 {umo}，"
-                    f"{'@全体' if has_new else '普通'}，"
+                    f"{'@everyone' if has_new else '普通'}，"
                     f"图片={'有' if img_url else '无'}"
                 )
             except Exception as e:
