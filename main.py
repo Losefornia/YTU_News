@@ -15,7 +15,7 @@ from . import spider
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 DATA_DIR = StarTools.get_data_dir("astrbot_plugin_ytunews")
-SUB_FILE = DATA_DIR / "subs.json"
+SEEN_FILE = DATA_DIR / "seen_groups.json"
 
 CATEGORY_ORDER = ["重要", "科研竞赛", "研究生", "其他"]
 CATEGORY_LIMIT = {"重要": 20, "科研竞赛": 15, "研究生": 5, "其他": 20}
@@ -29,28 +29,38 @@ CLEANUP_DAYS = 180
 PUSH_TIMES = [(12, 0)]
 PUSH_LIMIT = 10
 
-_sub_lock = asyncio.Lock()
+_seen_lock = asyncio.Lock()
 
 
-# ==================== 订阅读写 ====================
+# ==================== 群列表读写 ====================
 
-def load_subs():
-    if SUB_FILE.exists():
+def load_seen():
+    """返回用过的群 UMO 列表。"""
+    if SEEN_FILE.exists():
         try:
-            data = json.loads(SUB_FILE.read_text(encoding="utf-8"))
+            data = json.loads(SEEN_FILE.read_text(encoding="utf-8"))
             return data if isinstance(data, list) else []
         except Exception:
             return []
     return []
 
 
-def save_subs(lst):
+def save_seen(lst):
     try:
-        SUB_FILE.write_text(
+        SEEN_FILE.write_text(
             json.dumps(lst, ensure_ascii=False, indent=2), encoding="utf-8"
         )
     except Exception as e:
-        logger.warning(f"[ytunews] 保存订阅失败: {e}")
+        logger.warning(f"[ytunews] 保存群列表失败: {e}")
+
+
+async def remember_group(umo: str):
+    """自动记录用过的群。"""
+    async with _seen_lock:
+        seen = load_seen()
+        if umo not in seen:
+            seen.append(umo)
+            save_seen(seen)
 
 
 # ==================== 工具函数 ====================
@@ -235,12 +245,12 @@ class YtuNewsPlugin(Star):
         # 渲染 /新闻 同款图片
         img_url = await self._render_news_image()
 
-        subs = load_subs()
-        if not subs:
-            logger.info("[ytunews] 无订阅者，跳过推送")
+        targets = load_seen()
+        if not targets:
+            logger.info("[ytunews] 无群使用过，跳过推送")
             return
 
-        for umo in subs:
+        for umo in targets:
             try:
                 full_text = f"<qqbot-at-all />\n{text}" if has_new else text
                 if img_url:
@@ -311,31 +321,11 @@ class YtuNewsPlugin(Star):
 
     # ==================== 命令 ====================
 
-    @filter.command("订阅")
-    async def subscribe(self, event: AstrMessageEvent):
-        umo = event.unified_msg_origin
-        async with _sub_lock:
-            subs = load_subs()
-            if umo in subs:
-                return
-            subs.append(umo)
-            save_subs(subs)
-        yield event.plain_result("✅ 已订阅烟大新闻，每天 12 点推送。")
-
-    @filter.command("取消订阅")
-    async def unsubscribe(self, event: AstrMessageEvent):
-        umo = event.unified_msg_origin
-        async with _sub_lock:
-            subs = load_subs()
-            if umo not in subs:
-                yield event.plain_result("当前群未订阅。")
-                return
-            subs.remove(umo)
-            save_subs(subs)
-        yield event.plain_result("已取消订阅。")
-
     @filter.command("新闻")
     async def news(self, event: AstrMessageEvent):
+        # 自动记录用过的群
+        await remember_group(event.unified_msg_origin)
+
         if db.count_all() == 0:
             yield event.plain_result("首次使用，正在抓取新闻，请稍候…")
             try:
