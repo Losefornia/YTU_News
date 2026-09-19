@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, date
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageChain
-from astrbot.api.message_components import Plain, Image
+from astrbot.api.message_components import Plain, Image, AtAll
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger
 
@@ -202,13 +202,12 @@ class YtuNewsPlugin(Star):
 
     async def _push_daily(self):
         """每天 12 点推送。
-        有新增 → @everyone + 文字列表 + 图片
+        有新增 → AtAll + 文字列表 + 图片
         无新增 → 普通消息 + "今日无新增" + 图片
         """
         now = datetime.now()
         last_push = db.get_last_push()
         since = last_push if last_push else (now - timedelta(days=1))
-        # 只推最近 1 天内发布的新闻
         date_cutoff = (now - timedelta(days=1)).date()
 
         new_items = db.query_unpushed(since, date_cutoff=date_cutoff, limit=PUSH_LIMIT)
@@ -240,8 +239,6 @@ class YtuNewsPlugin(Star):
             ]
 
         text = "\n".join(lines)
-
-        # 渲染 /新闻 同款图片
         img_url = await self._render_news_image()
 
         targets = load_seen()
@@ -251,24 +248,26 @@ class YtuNewsPlugin(Star):
 
         for umo in targets:
             try:
-                # 【改】QQ 官方 Bot 群聊 @全体成员用 @everyone
-                full_text = f"@everyone\n{text}" if has_new else text
                 if img_url:
-                    chain = MessageChain(chain=[Plain(full_text), Image.fromURL(img_url)])
+                    if has_new:
+                        chain = MessageChain(chain=[AtAll(), Plain(text), Image.fromURL(img_url)])
+                    else:
+                        chain = MessageChain(chain=[Plain(text), Image.fromURL(img_url)])
                 else:
-                    chain = MessageChain(chain=[Plain(full_text)])
+                    if has_new:
+                        chain = MessageChain(chain=[AtAll(), Plain(text)])
+                    else:
+                        chain = MessageChain(chain=[Plain(text)])
                 await self.context.send_message(umo, chain)
                 logger.info(
                     f"[ytunews] 推送到 {umo}，"
-                    f"{'@everyone' if has_new else '普通'}，"
+                    f"{'@全体' if has_new else '普通'}，"
                     f"图片={'有' if img_url else '无'}"
                 )
             except Exception as e:
                 logger.error(f"[ytunews] 推送失败 {umo}: {e}")
 
-        # 推送完成，记录时间
         db.set_last_push(now)
-
         if new_items:
             db.mark_pushed([it["id"] for it in new_items])
 
@@ -323,7 +322,6 @@ class YtuNewsPlugin(Star):
 
     @filter.command("新闻")
     async def news(self, event: AstrMessageEvent):
-        # 自动记录用过的群
         await remember_group(event.unified_msg_origin)
 
         if db.count_all() == 0:
@@ -408,3 +406,30 @@ class YtuNewsPlugin(Star):
     async def test_push(self, event: AstrMessageEvent):
         await self._push_daily()
         yield event.plain_result("已触发一次推送，去群里看看。")
+
+    @filter.command("测试@")
+    async def test_at(self, event: AstrMessageEvent):
+        """测试 @全体成员 是否生效。"""
+        now = datetime.now()
+        today = now.strftime("%m月%d日")
+
+        text = (
+            f"📢 烟大新闻（{today}）· 测试推送\n\n"
+            f"1. [测试] 这是一条测试通知，用于验证 @全体成员 是否生效\n"
+            f"   https://jwc.ytu.edu.cn/\n\n"
+            f"📋 完整列表见图片 ↓"
+        )
+
+        img_url = await self._render_news_image()
+
+        try:
+            if img_url:
+                chain = MessageChain(chain=[AtAll(), Plain(text), Image.fromURL(img_url)])
+            else:
+                chain = MessageChain(chain=[AtAll(), Plain(text)])
+            await self.context.send_message(event.unified_msg_origin, chain)
+            logger.info("[ytunews] 测试@ 已发送，带 AtAll")
+            yield event.plain_result("已发送测试消息，看群里 @ 是否生效。")
+        except Exception as e:
+            logger.error(f"[ytunews] 测试@ 失败: {e}")
+            yield event.plain_result(f"发送失败：{e}")
