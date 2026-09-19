@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 from astrbot.api import logger
 
 from .sites import SITES
+from . import db
 from .utils import extract_date, parse_detail_date
 
 HEADERS = {
@@ -18,7 +19,8 @@ HEADERS = {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/124.0 Safari/537.36"
-    )
+    ),
+    "Accept-Encoding": "gzip, deflate",
 }
 
 
@@ -29,17 +31,16 @@ async def fetch(client: httpx.AsyncClient, url: str) -> str:
     return r.text
 
 
-def parse_list(html: str, site: dict):
+def parse_list(html: str, site: dict, existing_urls: set = None, stop_after_known: int = 3):
+    """【P1-4】连续 N 条已存在就停，避免全量解析。"""
     soup = BeautifulSoup(html, "html.parser")
     container = soup.select_one(site["container"]) or soup
 
     items = []
     seen = set()
+    known_streak = 0
+
     for a in container.select(f'a[href*="{site["link_filter"]}"]'):
-        title = a.get_text(" ", strip=True)
-        title = re.sub(r'^\d{4}[-./年]\d{1,2}[-./月]\d{1,2}日?\s*', '', title).strip()
-        if not title or len(title) < 4:
-            continue
         href = a.get("href")
         if not href:
             continue
@@ -47,6 +48,21 @@ def parse_list(html: str, site: dict):
         if full_url in seen:
             continue
         seen.add(full_url)
+
+        # 连续 N 条已存在 → 认为后面都是旧的，停止
+        if existing_urls and full_url in existing_urls:
+            known_streak += 1
+            if known_streak >= stop_after_known:
+                logger.debug(f"[{site['name']}] 连续 {stop_after_known} 条已存在，停止解析")
+                break
+            continue
+
+        known_streak = 0  # 遇到新的，重置
+
+        title = a.get_text(" ", strip=True)
+        title = re.sub(r'^\d{4}[-./年]\d{1,2}[-./月]\d{1,2}日?\s*', '', title).strip()
+        if not title or len(title) < 4:
+            continue
 
         date = extract_date(a, site)
         items.append({
@@ -56,48 +72,47 @@ def parse_list(html: str, site: dict):
             "site": site["name"],
             "category": site.get("category", "其他"),
         })
+
+    # 【P1-24】按日期排序，有日期的在前，无日期的在后
+    items.sort(key=lambda x: (x["date"] is None, x["date"] or datetime.min.date()), reverse=False)
     return items
 
 
-def find_suspicious(items, threshold: int = 3):
-    """同一站点同一日期出现 >= threshold 条，怀疑列表页日期是统一的。"""
+async def enrich_dates(client, items, max_fetch_per_site: int = 10):
+    """【P0-3 / P1-10】合并补日期和核对可疑日期，同一 URL 只抓一次，且限制总数。"""
+    fetched = {}
+    fetched_count = 0
+
+    need_fetch = [it for it in items if it["date"] is None]
+
     dates = Counter(it["date"] for it in items if it["date"])
-    suspicious = {d for d, c in dates.items() if c >= threshold}
-    return [it for it in items if it["date"] in suspicious]
-
-
-async def fill_missing_dates(client, items):
-    """列表页没日期的，去详情页补。"""
+    suspicious = {d for d, c in dates.items() if c >= 3}
     for it in items:
-        if it["date"] is not None:
+        if it["date"] in suspicious and it not in need_fetch:
+            need_fetch.append(it)
+
+    for it in need_fetch:
+        if fetched_count >= max_fetch_per_site:
+            break
+        url = it["url"]
+        if url in fetched:
             continue
         try:
-            html = await fetch(client, it["url"])
-            d = parse_detail_date(html)
-            if d:
-                it["date"] = d
+            html = await fetch(client, url)
+            fetched[url] = parse_detail_date(html)
         except Exception as e:
-            logger.warning(f"[WARN] 详情页失败 {it['url']}: {e}")
+            logger.warning(f"[WARN] 详情页失败 {url}: {e}")
+            fetched[url] = None
+        fetched_count += 1
         await asyncio.sleep(0.3)
+
+    for it in items:
+        if it["url"] in fetched and fetched[it["url"]]:
+            it["date"] = fetched[it["url"]]
     return items
 
 
-async def verify_suspicious_dates(client, items):
-    """可疑日期的条目，去详情页核对，详情页优先、列表页兜底。"""
-    for it in find_suspicious(items):
-        fallback = it["date"]
-        try:
-            html = await fetch(client, it["url"])
-            d = parse_detail_date(html)
-            it["date"] = d or fallback
-        except Exception as e:
-            logger.warning(f"[WARN] 详情页失败 {it['url']}: {e}")
-            it["date"] = fallback
-        await asyncio.sleep(0.3)
-    return items
-
-
-async def crawl_site(client, site):
+async def crawl_site(client, site, existing_urls=None):
     if site.get("type") == "json":
         return await crawl_json_site(client, site)
 
@@ -107,15 +122,13 @@ async def crawl_site(client, site):
         logger.error(f"[ERR] {site['name']} 抓取失败: {e}")
         return []
 
-    items = parse_list(html, site)
+    items = parse_list(html, site, existing_urls, stop_after_known=3)
 
-    if any(it["date"] is None for it in items):
-        items = await fill_missing_dates(client, items)
-
-    items = await verify_suspicious_dates(client, items)
+    if items:
+        items = await enrich_dates(client, items, max_fetch_per_site=10)
 
     logger.info(
-        f"[OK] {site['name']}: 抓到 {len(items)} 条，"
+        f"[OK] {site['name']}: 新增 {len(items)} 条，"
         f"日期缺失 {sum(1 for i in items if i['date'] is None)} 条"
     )
     return items
@@ -170,7 +183,7 @@ async def crawl_json_site(client, site):
 
 async def crawl_all():
     async with httpx.AsyncClient() as client:
-        tasks = [crawl_site(client, s) for s in SITES]
+        existing = db.get_all_urls()   # 【P1-4】只查一次
+        tasks = [crawl_site(client, s, existing) for s in SITES]
         results = await asyncio.gather(*tasks)
-    all_items = [it for sub in results for it in sub]
-    return all_items
+    return [it for sub in results for it in sub]
