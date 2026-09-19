@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, date
 
 from astrbot.api.star import StarTools
 
-# 数据目录改到 plugin_data，重装不丢
 DATA_DIR = StarTools.get_data_dir("astrbot_plugin_ytunews")
 DB_PATH = DATA_DIR / "news.db"
 
@@ -30,12 +29,41 @@ def init_db():
             pushed INTEGER DEFAULT 0
         )
     """)
-    # 兼容老库：没有 pushed 字段就加上
     cols = [r["name"] for r in conn.execute("PRAGMA table_info(news)").fetchall()]
     if "pushed" not in cols:
         conn.execute("ALTER TABLE news ADD COLUMN pushed INTEGER DEFAULT 0")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS kv (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+
     conn.execute("CREATE INDEX IF NOT EXISTS idx_news_created ON news(created_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_news_pushed ON news(pushed)")
+    conn.commit()
+    conn.close()
+
+
+def get_last_push():
+    conn = get_conn()
+    row = conn.execute("SELECT value FROM kv WHERE key = 'last_push'").fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        return datetime.fromisoformat(row["value"])
+    except ValueError:
+        return None
+
+
+def set_last_push(dt: datetime):
+    conn = get_conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO kv (key, value) VALUES ('last_push', ?)",
+        (dt.isoformat(),),
+    )
     conn.commit()
     conn.close()
 
@@ -90,7 +118,6 @@ def count_all():
 
 
 def get_all_urls():
-    """一次性查出所有已存在的 URL，供列表页提前停止用。"""
     conn = get_conn()
     rows = conn.execute("SELECT url FROM news").fetchall()
     conn.close()
@@ -98,7 +125,6 @@ def get_all_urls():
 
 
 def cleanup_old(days: int = 180):
-    """清理超过 N 天的旧新闻，date 为 NULL 的保留。"""
     cutoff = (datetime.now().date() - timedelta(days=days)).isoformat()
     conn = get_conn()
     n = conn.execute(
@@ -127,3 +153,52 @@ def site_stats():
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def query_unpushed(since: datetime, date_cutoff: date = None, limit: int = 10):
+    conn = get_conn()
+    if date_cutoff:
+        rows = conn.execute(
+            "SELECT * FROM news WHERE created_at >= ? "
+            "AND (pushed IS NULL OR pushed = 0) "
+            "AND (date IS NULL OR date >= ?) "
+            "ORDER BY created_at DESC LIMIT ?",
+            (since.isoformat(), date_cutoff.isoformat(), limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM news WHERE created_at >= ? "
+            "AND (pushed IS NULL OR pushed = 0) "
+            "ORDER BY created_at DESC LIMIT ?",
+            (since.isoformat(), limit),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def count_unpushed(since: datetime, date_cutoff: date = None) -> int:
+    conn = get_conn()
+    if date_cutoff:
+        n = conn.execute(
+            "SELECT COUNT(*) FROM news WHERE created_at >= ? "
+            "AND (pushed IS NULL OR pushed = 0) "
+            "AND (date IS NULL OR date >= ?)",
+            (since.isoformat(), date_cutoff.isoformat()),
+        ).fetchone()[0]
+    else:
+        n = conn.execute(
+            "SELECT COUNT(*) FROM news WHERE created_at >= ? "
+            "AND (pushed IS NULL OR pushed = 0)",
+            (since.isoformat(),),
+        ).fetchone()[0]
+    conn.close()
+    return n
+
+
+def mark_pushed(ids):
+    if not ids:
+        return
+    conn = get_conn()
+    conn.executemany("UPDATE news SET pushed = 1 WHERE id = ?", [(i,) for i in ids])
+    conn.commit()
+    conn.close()
