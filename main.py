@@ -12,7 +12,7 @@ from astrbot.api import logger
 from . import db
 from . import spider
 
-# 模板保留在插件目录（重装会跟着更新，这是对的）
+# 模板保留在插件目录（重装会跟着更新）
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 # 数据目录改到 plugin_data（重装不丢）
@@ -23,9 +23,8 @@ CATEGORY_ORDER = ["重要", "科研竞赛", "研究生", "其他"]
 CATEGORY_LIMIT = {"重要": 20, "科研竞赛": 15, "研究生": 5, "其他": 20}
 NEW_DAYS = 3
 
-# ===== 抓取配置 =====
-FETCH_HOUR = 8
-FETCH_MINUTE = 0
+# ===== 抓取配置：早 8 点到晚 8 点，每 3 小时一次 =====
+FETCH_TIMES = [(8, 0), (11, 0), (14, 0), (17, 0), (20, 0)]
 CLEANUP_DAYS = 180
 
 # 订阅文件并发锁
@@ -81,16 +80,19 @@ def calc_base_size(n):
     return 28
 
 
-def _next_run(hour: int, minute: int) -> datetime:
+def _next_run_from_list(times):
     now = datetime.now()
-    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    if now >= target:
-        target += timedelta(days=1)
-    return target
+    candidates = []
+    for h, m in times:
+        t = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        if t <= now:
+            t += timedelta(days=1)
+        candidates.append(t)
+    return min(candidates)
 
 
 def build_ordered(items):
-    """按分类分组、组内按日期倒序，计算新鲜度，返回 ordered 和 groups。
+    """按分类分组、组内按日期倒序，计算新鲜度。
 
     关键：排序 key 统一成 date 类型，None 用 date.min 代替，
     避免 date 和 str 比较导致 TypeError。
@@ -104,7 +106,6 @@ def build_ordered(items):
         groups[it.get("category", "其他")].append(it)
 
     for cat in groups:
-        # 统一 key 类型：date 对象用自身，None 用 date.min
         groups[cat].sort(
             key=lambda x: x["date"] if isinstance(x["date"], date) else date.min,
             reverse=True,
@@ -159,12 +160,12 @@ class YtuNewsPlugin(Star):
     # ==================== 抓取循环 ====================
 
     async def _fetch_loop(self):
-        """启动后先抓一次，之后每天固定时间抓一次。"""
+        """启动后先抓一次，之后每天 8/11/14/17/20 点各抓一次。"""
         await asyncio.sleep(10)
         await self._do_fetch("首次")
 
         while True:
-            target = _next_run(FETCH_HOUR, FETCH_MINUTE)
+            target = _next_run_from_list(FETCH_TIMES)
             wait = (target - datetime.now()).total_seconds()
             logger.info(f"[ytunews] 下次抓取：{target:%Y-%m-%d %H:%M:%S}")
             await asyncio.sleep(wait)
@@ -186,7 +187,7 @@ class YtuNewsPlugin(Star):
     # ==================== 渲染 ====================
 
     async def _render_news_image(self, days: int = None):
-        """渲染新闻图片。加锁防止并发渲染，数据异常时返回 None。"""
+        """渲染新闻图片。加锁防止并发渲染，异常时返回 None。"""
         async with self._render_lock:
             try:
                 items = db.query_news(days)
@@ -197,7 +198,6 @@ class YtuNewsPlugin(Star):
             if not items:
                 return None
 
-            # 统一日期类型
             for it in items:
                 it["date"] = normalize_date(it.get("date"))
 
@@ -256,6 +256,46 @@ class YtuNewsPlugin(Star):
             yield event.plain_result("暂无新闻。")
             return
         yield event.image_result(img_url)
+
+    @filter.command("搜索")
+    async def search(self, event: AstrMessageEvent, keyword: str = None):
+        if not keyword:
+            yield event.plain_result("用法：/搜索 关键词")
+            return
+        rows = db.search_news(keyword, limit=10)
+        if not rows:
+            yield event.plain_result(f"没有找到包含「{keyword}」的新闻。")
+            return
+        lines = [f"🔍 包含「{keyword}」的新闻：", ""]
+        for it in rows:
+            lines.append(f"· {it['title']}（{it['site']} {it['date'] or '无日期'}）")
+            lines.append(f"  {it['url']}")
+        yield event.plain_result("\n".join(lines))
+
+    @filter.command("刷新")
+    async def refresh(self, event: AstrMessageEvent):
+        yield event.plain_result("正在抓取…")
+        try:
+            items = await spider.crawl_all()
+            inserted = db.save_news(items)
+            yield event.plain_result(
+                f"抓取完成：共 {len(items)} 条，新写入 {inserted} 条，"
+                f"库内总计 {db.count_all()} 条"
+            )
+        except Exception as e:
+            logger.error(f"[ytunews] 手动刷新失败: {e}")
+            yield event.plain_result(f"抓取失败：{e}")
+
+    @filter.command("统计")
+    async def stats(self, event: AstrMessageEvent):
+        rows = db.site_stats()
+        if not rows:
+            yield event.plain_result("暂无数据。")
+            return
+        lines = ["📊 站点统计：", ""]
+        for r in rows:
+            lines.append(f"{r['site']}：{r['total']} 条，最近 {r['last_date'] or '无'}")
+        yield event.plain_result("\n".join(lines))
 
     @filter.command("测试推送")
     async def test_push(self, event: AstrMessageEvent):
