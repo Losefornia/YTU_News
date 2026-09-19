@@ -12,9 +12,10 @@ from astrbot.api import logger
 from . import db
 from . import spider
 
+# 模板保留在插件目录（重装会跟着更新，这是对的）
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
-# 【P0-1】数据目录改到 plugin_data
+# 数据目录改到 plugin_data（重装不丢）
 DATA_DIR = StarTools.get_data_dir("astrbot_plugin_ytunews")
 UMO_FILE = DATA_DIR / "umo.json"
 
@@ -25,11 +26,13 @@ NEW_DAYS = 3
 # ===== 抓取配置 =====
 FETCH_HOUR = 8
 FETCH_MINUTE = 0
-NEW_ITEM_LIMIT = 5
+CLEANUP_DAYS = 180
 
-# 【P1-5】订阅文件并发锁
+# 订阅文件并发锁
 _umo_lock = asyncio.Lock()
 
+
+# ==================== 工具函数 ====================
 
 def load_umo():
     if UMO_FILE.exists():
@@ -41,17 +44,21 @@ def load_umo():
 
 
 async def save_umo_async(umo):
-    """【P1-5】加锁保护，避免并发写丢订阅者。"""
+    """加锁保护，避免并发写丢订阅者。"""
     async with _umo_lock:
         lst = load_umo()
         if umo not in lst:
             lst.append(umo)
-            UMO_FILE.write_text(
-                json.dumps(lst, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            try:
+                UMO_FILE.write_text(
+                    json.dumps(lst, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+            except Exception as e:
+                logger.warning(f"[ytunews] 保存订阅失败: {e}")
 
 
 def normalize_date(d):
+    """统一成 date 对象或 None。"""
     if isinstance(d, datetime):
         return d.date()
     if isinstance(d, date):
@@ -64,7 +71,30 @@ def normalize_date(d):
     return None
 
 
+def calc_base_size(n):
+    if n <= 10:
+        return 34
+    if n <= 20:
+        return 32
+    if n <= 30:
+        return 30
+    return 28
+
+
+def _next_run(hour: int, minute: int) -> datetime:
+    now = datetime.now()
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if now >= target:
+        target += timedelta(days=1)
+    return target
+
+
 def build_ordered(items):
+    """按分类分组、组内按日期倒序，计算新鲜度，返回 ordered 和 groups。
+
+    关键：排序 key 统一成 date 类型，None 用 date.min 代替，
+    避免 date 和 str 比较导致 TypeError。
+    """
     today = datetime.now().date()
     new_cutoff = today - timedelta(days=NEW_DAYS)
     month_cutoff = today - timedelta(days=30)
@@ -74,7 +104,11 @@ def build_ordered(items):
         groups[it.get("category", "其他")].append(it)
 
     for cat in groups:
-        groups[cat].sort(key=lambda x: x["date"] or "", reverse=True)
+        # 统一 key 类型：date 对象用自身，None 用 date.min
+        groups[cat].sort(
+            key=lambda x: x["date"] if isinstance(x["date"], date) else date.min,
+            reverse=True,
+        )
         limit = CATEGORY_LIMIT.get(cat, 10)
         groups[cat] = groups[cat][:limit]
         for it in groups[cat]:
@@ -99,23 +133,7 @@ def build_ordered(items):
     return ordered, groups
 
 
-def calc_base_size(n):
-    if n <= 10:
-        return 34
-    if n <= 20:
-        return 32
-    if n <= 30:
-        return 30
-    return 28
-
-
-def _next_run(hour: int, minute: int) -> datetime:
-    now = datetime.now()
-    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    if now >= target:
-        target += timedelta(days=1)
-    return target
-
+# ==================== 插件主体 ====================
 
 @register("astrbot_plugin_ytunews", "youwas936-design", "烟大新闻", "1.0.0", "")
 class YtuNewsPlugin(Star):
@@ -123,6 +141,7 @@ class YtuNewsPlugin(Star):
         super().__init__(context)
         db.init_db()
         self._fetch_task = None
+        self._render_lock = asyncio.Lock()   # 防止并发渲染
 
     async def initialize(self):
         logger.info("✅ 烟大新闻插件已加载")
@@ -131,67 +150,96 @@ class YtuNewsPlugin(Star):
     async def terminate(self):
         if self._fetch_task:
             self._fetch_task.cancel()
+            try:
+                await self._fetch_task
+            except asyncio.CancelledError:
+                pass
         logger.info("👋 烟大新闻插件已卸载")
 
-    # ===== 抓取循环 =====
+    # ==================== 抓取循环 ====================
+
     async def _fetch_loop(self):
+        """启动后先抓一次，之后每天固定时间抓一次。"""
         await asyncio.sleep(10)
-        try:
-            items = await spider.crawl_all()
-            inserted = db.save_news(items)
-            deleted = db.cleanup_old(days=180)   # 【P1-6】
-            logger.info(f"[ytunews] 首次抓取 {len(items)} 条，新写入 {inserted} 条，清理 {deleted} 条")
-        except Exception as e:
-            logger.warning(f"[ytunews] 首次抓取异常: {e}")
+        await self._do_fetch("首次")
 
         while True:
             target = _next_run(FETCH_HOUR, FETCH_MINUTE)
             wait = (target - datetime.now()).total_seconds()
             logger.info(f"[ytunews] 下次抓取：{target:%Y-%m-%d %H:%M:%S}")
             await asyncio.sleep(wait)
-            try:
-                items = await spider.crawl_all()
-                inserted = db.save_news(items)
-                deleted = db.cleanup_old(days=180)
-                logger.info(f"[ytunews] 抓取 {len(items)} 条，新写入 {inserted} 条，清理 {deleted} 条")
-            except Exception as e:
-                logger.warning(f"[ytunews] 抓取异常: {e}")
+            await self._do_fetch("定时")
+
+    async def _do_fetch(self, tag: str):
+        """抓取 + 入库 + 清理，统一异常处理。"""
+        try:
+            items = await spider.crawl_all()
+            inserted = db.save_news(items)
+            deleted = db.cleanup_old(days=CLEANUP_DAYS)
+            logger.info(
+                f"[ytunews] {tag}抓取 {len(items)} 条，"
+                f"新写入 {inserted} 条，清理 {deleted} 条"
+            )
+        except Exception as e:
+            logger.warning(f"[ytunews] {tag}抓取异常: {e}")
+
+    # ==================== 渲染 ====================
 
     async def _render_news_image(self, days: int = None):
-        items = db.query_news(days)
-        for it in items:
-            it["date"] = normalize_date(it.get("date"))
+        """渲染新闻图片。加锁防止并发渲染，数据异常时返回 None。"""
+        async with self._render_lock:
+            try:
+                items = db.query_news(days)
+            except Exception as e:
+                logger.error(f"[ytunews] 查询新闻失败: {e}")
+                return None
 
-        if not items:
-            return None
+            if not items:
+                return None
 
-        ordered, groups = build_ordered(items)
+            # 统一日期类型
+            for it in items:
+                it["date"] = normalize_date(it.get("date"))
 
-        for cat in groups:
-            for it in groups[cat]:
-                if isinstance(it["date"], date):
-                    it["date"] = it["date"].strftime("%Y-%m-%d")
-                else:
-                    it["date"] = ""
+            ordered, groups = build_ordered(items)
 
-        tmpl = (TEMPLATE_DIR / "news.html").read_text(encoding="utf-8")
-        data = {
-            "title": "全部新闻",
-            "total": len(ordered),
-            "now": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "groups": {c: groups.get(c, []) for c in CATEGORY_ORDER},
-            "base_size": calc_base_size(len(ordered)),
-            "footer_note": "数据来源于烟台大学各学院官网，仅供参考",
-            "douyin_id": "47780260687",
-        }
-        return await self.html_render(tmpl, data)
+            # 渲染前把 date 转成字符串，避免 JSON 序列化失败
+            for cat in groups:
+                for it in groups[cat]:
+                    if isinstance(it["date"], date):
+                        it["date"] = it["date"].strftime("%Y-%m-%d")
+                    else:
+                        it["date"] = ""
 
-    # ===== 命令 =====
+            try:
+                tmpl = (TEMPLATE_DIR / "news.html").read_text(encoding="utf-8")
+            except Exception as e:
+                logger.error(f"[ytunews] 读取模板失败: {e}")
+                return None
+
+            data = {
+                "title": "全部新闻",
+                "total": len(ordered),
+                "now": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "groups": {c: groups.get(c, []) for c in CATEGORY_ORDER},
+                "base_size": calc_base_size(len(ordered)),
+                "footer_note": "数据来源于烟台大学各学院官网，仅供参考",
+                "douyin_id": "47780260687",
+            }
+
+            try:
+                return await self.html_render(tmpl, data)
+            except Exception as e:
+                logger.error(f"[ytunews] 渲染失败: {e}")
+                return None
+
+    # ==================== 命令 ====================
+
     @filter.command("新闻")
     async def news(self, event: AstrMessageEvent):
         await save_umo_async(event.unified_msg_origin)
 
-        # 【P0-2】库为空时自动抓一次
+        # 库为空时自动抓一次
         if db.count_all() == 0:
             yield event.plain_result("首次使用，正在抓取新闻，请稍候…")
             try:
@@ -209,9 +257,9 @@ class YtuNewsPlugin(Star):
             return
         yield event.image_result(img_url)
 
-    # 【P1-7】测试推送只推当前群，不遍历订阅者
     @filter.command("测试推送")
     async def test_push(self, event: AstrMessageEvent):
+        """只推当前会话，不遍历订阅者。"""
         img_url = await self._render_news_image()
         if not img_url:
             yield event.plain_result("暂无新闻可推送。")
