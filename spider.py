@@ -31,8 +31,8 @@ async def fetch(client: httpx.AsyncClient, url: str) -> str:
     return r.text
 
 
-def parse_list(html: str, site: dict, existing_urls: set = None, stop_after_known: int = 3):
-    """【P1-4】连续 N 条已存在就停，避免全量解析。"""
+def parse_list(html: str, site: dict, existing_urls: set = None, stop_after_known: int = 2):
+    """连续 N 条已存在就停，避免全量解析。"""
     soup = BeautifulSoup(html, "html.parser")
     container = soup.select_one(site["container"]) or soup
 
@@ -73,13 +73,16 @@ def parse_list(html: str, site: dict, existing_urls: set = None, stop_after_know
             "category": site.get("category", "其他"),
         })
 
-    # 【P1-24】按日期排序，有日期的在前，无日期的在后
-    items.sort(key=lambda x: (x["date"] is None, x["date"] or datetime.min.date()), reverse=False)
+    # 按日期排序，有日期的在前，无日期的在后
+    items.sort(
+        key=lambda x: (x["date"] is None, x["date"] or datetime.min.date()),
+        reverse=False,
+    )
     return items
 
 
 async def enrich_dates(client, items, max_fetch_per_site: int = 10):
-    """【P0-3 / P1-10】合并补日期和核对可疑日期，同一 URL 只抓一次，且限制总数。"""
+    """缺日期的补详情页；可疑日期的核对详情页。同一个 URL 只抓一次，且限制总数。"""
     fetched = {}
     fetched_count = 0
 
@@ -122,7 +125,8 @@ async def crawl_site(client, site, existing_urls=None):
         logger.error(f"[ERR] {site['name']} 抓取失败: {e}")
         return []
 
-    items = parse_list(html, site, existing_urls, stop_after_known=3)
+    stop = site.get("stop_after_known", 2)
+    items = parse_list(html, site, existing_urls, stop_after_known=stop)
 
     if items:
         items = await enrich_dates(client, items, max_fetch_per_site=10)
@@ -183,7 +187,7 @@ async def crawl_json_site(client, site):
 
 async def crawl_all():
     async with httpx.AsyncClient() as client:
-        existing = db.get_all_urls()   # 【P1-4】只查一次
+        existing = db.get_all_urls()   # 只查一次
         tasks = [crawl_site(client, s, existing) for s in SITES]
         results = await asyncio.gather(*tasks)
     return [it for sub in results for it in sub]
