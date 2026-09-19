@@ -32,7 +32,6 @@ async def fetch(client: httpx.AsyncClient, url: str) -> str:
 
 
 def parse_list(html: str, site: dict, existing_urls: set = None, stop_after_known: int = 2):
-    """连续 N 条已存在就停，避免全量解析。"""
     soup = BeautifulSoup(html, "html.parser")
     container = soup.select_one(site["container"]) or soup
 
@@ -49,7 +48,6 @@ def parse_list(html: str, site: dict, existing_urls: set = None, stop_after_know
             continue
         seen.add(full_url)
 
-        # 连续 N 条已存在 → 认为后面都是旧的，停止
         if existing_urls and full_url in existing_urls:
             known_streak += 1
             if known_streak >= stop_after_known:
@@ -57,7 +55,7 @@ def parse_list(html: str, site: dict, existing_urls: set = None, stop_after_know
                 break
             continue
 
-        known_streak = 0  # 遇到新的，重置
+        known_streak = 0
 
         title = a.get_text(" ", strip=True)
         title = re.sub(r'^\d{4}[-./年]\d{1,2}[-./月]\d{1,2}日?\s*', '', title).strip()
@@ -73,7 +71,6 @@ def parse_list(html: str, site: dict, existing_urls: set = None, stop_after_know
             "category": site.get("category", "其他"),
         })
 
-    # 按日期排序，有日期的在前，无日期的在后
     items.sort(
         key=lambda x: (x["date"] is None, x["date"] or datetime.min.date()),
         reverse=False,
@@ -82,7 +79,6 @@ def parse_list(html: str, site: dict, existing_urls: set = None, stop_after_know
 
 
 async def enrich_dates(client, items, max_fetch_per_site: int = 10):
-    """缺日期的补详情页；可疑日期的核对详情页。同一个 URL 只抓一次，且限制总数。"""
     fetched = {}
     fetched_count = 0
 
@@ -187,7 +183,7 @@ async def crawl_json_site(client, site):
 
 async def crawl_all():
     async with httpx.AsyncClient() as client:
-        existing = db.get_all_urls()   # 只查一次
+        existing = db.get_all_urls()
         tasks = [crawl_site(client, s, existing) for s in SITES]
         results = await asyncio.gather(*tasks)
     return [it for sub in results for it in sub]
