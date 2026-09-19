@@ -40,8 +40,7 @@
     background: transparent;
     border-radius: 0;
     padding: 12px 0 8px;
-    margin-bottom: 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    margin-bottom: 14px;
   }
   .cat-title {
     font-size: 1.3em;
@@ -56,22 +55,36 @@
   .cat-graduate  .cat-title { border-left-color: #9c6bff; color: #9c6bff; }
   .cat-other     .cat-title { border-left-color: #8a9cb8; color: #8a9cb8; }
 
+  /* ===== 每条新闻：圆角卡片 + 按新鲜度给背景色 ===== */
   .item {
     display: block;
-    padding: 10px 0 10px 14px;
-    border-radius: 0;
-    margin-bottom: 0;
-    background: transparent;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    padding: 10px 14px;
+    margin-bottom: 4px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.04);
     border-left: 3px solid transparent;
   }
-  .item:last-child { border-bottom: none; }
 
-  .item.new    { border-left-color: #3ddb7c; }
-  .item.recent { border-left-color: #4db8ff; }
-  .item.old    { border-left-color: rgba(255, 255, 255, 0.2); }
-  .item.none   { border-left-color: rgba(255, 255, 255, 0.1); opacity: 0.7; }
+  /* 新鲜度背景色（半透明，深色底上不刺眼） */
+  .item.new {
+    background: rgba(61, 219, 124, 0.12);
+    border-left-color: #3ddb7c;
+  }
+  .item.recent {
+    background: rgba(77, 184, 255, 0.10);
+    border-left-color: #4db8ff;
+  }
+  .item.old {
+    background: rgba(255, 255, 255, 0.04);
+    border-left-color: rgba(255, 255, 255, 0.2);
+  }
+  .item.none {
+    background: rgba(255, 255, 255, 0.03);
+    border-left-color: rgba(255, 255, 255, 0.1);
+    opacity: 0.7;
+  }
 
+  /* 日期颜色跟着新鲜度 */
   .item.new    .day { color: #3ddb7c; font-weight: bold; }
   .item.recent .day { color: #4db8ff; }
   .item.old    .day { color: #bbb; }
@@ -94,25 +107,31 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .day { font-size: 0.85em; flex-shrink: 0; margin-left: 14px; }
+  .day {
+    font-size: 0.85em;
+    flex-shrink: 0;
+    margin-left: 14px;
+    min-width: 90px;
+    text-align: right;
+  }
   .row2 {
     margin-top: 6px;
     font-size: 0.95em;
-    color: #999;
+    color: #b0b8c8;
     padding-left: 34px;
     display: flex;
     align-items: center;
     gap: 8px;
   }
   .row2 .site {
-    background: rgba(255, 255, 255, 0.06);
-    color: #aab;
+    background: rgba(255, 255, 255, 0.1);
+    color: #c0c8d8;
     padding: 2px 10px;
     border-radius: 4px;
     flex-shrink: 0;
   }
   .row2 .url {
-    color: #888;
+    color: #98a0b0;
     font-size: 1em;
     overflow: hidden;
     text-overflow: ellipsis;
