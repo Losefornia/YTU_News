@@ -23,11 +23,37 @@ HEADERS = {
     "Accept-Encoding": "gzip, deflate",
 }
 
+_client = None
+
+
+def get_client():
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(
+            headers=HEADERS,
+            limits=httpx.Limits(
+                max_connections=20,
+                max_keepalive_connections=10,
+                keepalive_expiry=60,
+            ),
+            follow_redirects=True,
+            timeout=20,
+        )
+    return _client
+
+
+async def close_client():
+    global _client
+    if _client and not _client.is_closed:
+        await _client.aclose()
+    _client = None
+
 
 async def fetch(client: httpx.AsyncClient, url: str) -> str:
-    r = await client.get(url, headers=HEADERS, timeout=20, follow_redirects=True)
+    r = await client.get(url)
     r.raise_for_status()
-    r.encoding = r.encoding or "utf-8"
+    if not r.encoding:
+        r.encoding = "utf-8"
     return r.text
 
 
@@ -79,16 +105,19 @@ def parse_list(html: str, site: dict, existing_urls: set = None, stop_after_know
 
 
 async def enrich_dates(client, items, max_fetch_per_site: int = 10):
-    fetched = {}
-    fetched_count = 0
-
-    need_fetch = [it for it in items if it["date"] is None]
+    if not items:
+        return items
 
     dates = Counter(it["date"] for it in items if it["date"])
     suspicious = {d for d, c in dates.items() if c >= 3}
-    for it in items:
-        if it["date"] in suspicious and it not in need_fetch:
-            need_fetch.append(it)
+
+    need_fetch = [
+        it for it in items
+        if it["date"] is None or it["date"] in suspicious
+    ]
+
+    fetched = {}
+    fetched_count = 0
 
     for it in need_fetch:
         if fetched_count >= max_fetch_per_site:
@@ -106,8 +135,9 @@ async def enrich_dates(client, items, max_fetch_per_site: int = 10):
         await asyncio.sleep(0.3)
 
     for it in items:
-        if it["url"] in fetched and fetched[it["url"]]:
-            it["date"] = fetched[it["url"]]
+        d = fetched.get(it["url"])
+        if d:
+            it["date"] = d
     return items
 
 
@@ -139,8 +169,7 @@ async def crawl_json_site(client, site):
         r = await client.get(
             site["api_url"],
             params=site.get("params", {}),
-            headers={**HEADERS, "Referer": site.get("referer", "")},
-            timeout=20,
+            headers={"Referer": site.get("referer", "")},
         )
         r.raise_for_status()
         data = r.json()
@@ -182,8 +211,15 @@ async def crawl_json_site(client, site):
 
 
 async def crawl_all():
-    async with httpx.AsyncClient() as client:
-        existing = db.get_all_urls()
-        tasks = [crawl_site(client, s, existing) for s in SITES]
-        results = await asyncio.gather(*tasks)
-    return [it for sub in results for it in sub]
+    client = get_client()
+    existing = db.get_all_urls()
+    tasks = [crawl_site(client, s, existing) for s in SITES]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    out = []
+    for r in results:
+        if isinstance(r, Exception):
+            logger.error(f"[ytunews] 站点抓取异常: {r}")
+            continue
+        out.extend(r)
+    return out
