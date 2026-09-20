@@ -68,4 +68,23 @@ def extract_date(a_tag, site: dict):
         return d
 
     if a_tag.parent:
-        d
+        d = parse_date_text(a_tag.parent.get_text(" ", strip=True))
+        if d:
+            return d
+
+    for sib in [a_tag.find_next_sibling(), a_tag.find_previous_sibling()]:
+        if sib:
+            d = parse_date_text(sib.get_text(" ", strip=True))
+            if d:
+                return d
+
+    href = a_tag.get("href", "") or ""
+    m = URL_DATE_PATTERN.search(href)
+    if m:
+        y, mo, d_ = m.groups()
+        try:
+            return datetime(int(y), int(mo), int(d_)).date()
+        except ValueError:
+            pass
+
+    return None
