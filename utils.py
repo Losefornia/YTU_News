@@ -48,8 +48,8 @@ def parse_detail_date(html: str):
     d = _parse_match(META_PUBDATE_PATTERN.search(html))
     if d:
         return d
-    # 优先级 4：全文兜底
-    return parse_date_text(html)
+    # 优先级 4：全文兜底（只在前 64KB 里搜，避免匹配页脚版权年份）
+    return parse_date_text(html[:65536])
 
 
 def extract_date(a_tag, site: dict):
@@ -68,23 +68,4 @@ def extract_date(a_tag, site: dict):
         return d
 
     if a_tag.parent:
-        d = parse_date_text(a_tag.parent.get_text(" ", strip=True))
-        if d:
-            return d
-
-    for sib in [a_tag.find_next_sibling(), a_tag.find_previous_sibling()]:
-        if sib:
-            d = parse_date_text(sib.get_text(" ", strip=True))
-            if d:
-                return d
-
-    href = a_tag.get("href", "") or ""
-    m = URL_DATE_PATTERN.search(href)
-    if m:
-        y, mo, d_ = m.groups()
-        try:
-            return datetime(int(y), int(mo), int(d_)).date()
-        except ValueError:
-            pass
-
-    return None
+        d
