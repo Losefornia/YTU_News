@@ -30,21 +30,29 @@ PUSH_TIMES = [(12, 0)]
 PUSH_LIMIT = 10
 
 _seen_lock = asyncio.Lock()
+_seen_cache = None   # None 表示未加载
 
 
 # ==================== 群列表读写 ====================
 
 def load_seen():
+    global _seen_cache
+    if _seen_cache is not None:
+        return _seen_cache
     if SEEN_FILE.exists():
         try:
             data = json.loads(SEEN_FILE.read_text(encoding="utf-8"))
-            return data if isinstance(data, list) else []
+            _seen_cache = data if isinstance(data, list) else []
         except Exception:
-            return []
-    return []
+            _seen_cache = []
+    else:
+        _seen_cache = []
+    return _seen_cache
 
 
 def save_seen(lst):
+    global _seen_cache
+    _seen_cache = lst
     try:
         SEEN_FILE.write_text(
             json.dumps(lst, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -152,6 +160,15 @@ class YtuNewsPlugin(Star):
         logger.info("✅ 烟大新闻插件已加载")
         self._fetch_task = asyncio.create_task(self._fetch_loop())
         self._push_task = asyncio.create_task(self._push_loop())
+        self._fetch_task.add_done_callback(self._on_task_done)
+        self._push_task.add_done_callback(self._on_task_done)
+
+    def _on_task_done(self, task):
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.error(f"[ytunews] 后台任务异常退出: {exc}", exc_info=exc)
 
     async def terminate(self):
         for t in (self._fetch_task, self._push_task):
@@ -161,6 +178,8 @@ class YtuNewsPlugin(Star):
                     await t
                 except asyncio.CancelledError:
                     pass
+        await spider.close_client()
+        db.close_conn()
         logger.info("👋 烟大新闻插件已卸载")
 
     # ==================== 抓取循环 ====================
@@ -169,17 +188,25 @@ class YtuNewsPlugin(Star):
         await asyncio.sleep(10)
         await self._do_fetch("首次")
         while True:
-            target = _next_run_from_list(FETCH_TIMES)
-            wait = (target - datetime.now()).total_seconds()
-            logger.info(f"[ytunews] 下次抓取：{target:%Y-%m-%d %H:%M:%S}")
-            await asyncio.sleep(wait)
-            await self._do_fetch("定时")
+            try:
+                target = _next_run_from_list(FETCH_TIMES)
+                wait = (target - datetime.now()).total_seconds()
+                logger.info(f"[ytunews] 下次抓取：{target:%Y-%m-%d %H:%M:%S}")
+                await asyncio.sleep(wait)
+                await self._do_fetch("定时")
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"[ytunews] 抓取循环异常: {e}")
+                await asyncio.sleep(60)
 
     async def _do_fetch(self, tag: str):
         try:
             items = await spider.crawl_all()
             inserted = db.save_news(items)
             deleted = db.cleanup_old(days=CLEANUP_DAYS)
+            if deleted:
+                db.checkpoint()
             logger.info(
                 f"[ytunews] {tag}抓取 {len(items)} 条，"
                 f"新写入 {inserted} 条，清理 {deleted} 条"
@@ -191,14 +218,17 @@ class YtuNewsPlugin(Star):
 
     async def _push_loop(self):
         while True:
-            target = _next_run_from_list(PUSH_TIMES)
-            wait = (target - datetime.now()).total_seconds()
-            logger.info(f"[ytunews] 下次推送：{target:%Y-%m-%d %H:%M:%S}")
-            await asyncio.sleep(wait)
             try:
+                target = _next_run_from_list(PUSH_TIMES)
+                wait = (target - datetime.now()).total_seconds()
+                logger.info(f"[ytunews] 下次推送：{target:%Y-%m-%d %H:%M:%S}")
+                await asyncio.sleep(wait)
                 await self._push_daily()
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
-                logger.error(f"[ytunews] 定时推送异常: {e}")
+                logger.error(f"[ytunews] 推送循环异常: {e}")
+                await asyncio.sleep(60)
 
     async def _push_daily(self):
         """每天 12 点推送。
@@ -246,7 +276,7 @@ class YtuNewsPlugin(Star):
             logger.info("[ytunews] 无群使用过，跳过推送")
             return
 
-        for umo in targets:
+        async def _send_one(umo):
             try:
                 if img_url:
                     if has_new:
@@ -266,6 +296,8 @@ class YtuNewsPlugin(Star):
                 )
             except Exception as e:
                 logger.error(f"[ytunews] 推送失败 {umo}: {e}")
+
+        await asyncio.gather(*[_send_one(u) for u in targets])
 
         db.set_last_push(now)
         if new_items:
