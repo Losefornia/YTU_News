@@ -508,4 +508,25 @@ class YtuNewsPlugin(Star):
             items = await spider.crawl_all()
             inserted = db.save_news(items)
             yield event.plain_result(
-                f"抓取完成：共 {len(items)} 条，新写入 {inserted} 
+                f"抓取完成：共 {len(items)} 条，新写入 {inserted} 条，"
+                f"库内总计 {db.count_all()} 条"
+            )
+        except Exception as e:
+            logger.error(f"[ytunews] 手动刷新失败: {e}")
+            yield event.plain_result(f"抓取失败：{e}")
+
+    @filter.command("统计")
+    async def stats(self, event: AstrMessageEvent):
+        rows = db.site_stats()
+        if not rows:
+            yield event.plain_result("暂无数据。")
+            return
+        lines = ["📊 站点统计：", ""]
+        for r in rows:
+            lines.append(f"{r['site']}：{r['total']} 条，最近 {r['last_date'] or '无'}")
+        yield event.plain_result("\n".join(lines))
+
+    @filter.command("测试推送")
+    async def test_push(self, event: AstrMessageEvent):
+        await self._push_daily()
+        yield event.plain_result("已触发一次推送，去群里看看。")
