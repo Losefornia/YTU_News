@@ -1,90 +1,39 @@
-# -*- coding: utf-8 -*-
-import re
-from datetime import datetime
+import logging
+import json
+import os
+from pathlib import Path
 
-DATE_PATTERN = re.compile(r'(\d{4})[-./年](\d{1,2})[-./月](\d{1,2})')
-URL_DATE_PATTERN = re.compile(r'/(\d{4})/(\d{2})(\d{2})/')
+BASE_DIR = Path(__file__).parent
+CONFIG_PATH = BASE_DIR / "config.yaml"
+BIND_FILE = BASE_DIR / "bind_sessions.json"
 
-# 优先级 1：时间：2026年09月16日
-DETAIL_DATE_PATTERN = re.compile(r'时间[:：]\s*(\d{4})年(\d{1,2})月(\d{1,2})日')
-# 优先级 2：发布时间 / 时间 + 连字符 / 斜杠 / 点
-PUBDATE_PATTERN = re.compile(
-    r'(?:发布时间|发布日期|时间)[:：]\s*(\d{4})[-./年](\d{1,2})[-./月](\d{1,2})'
-)
-# 优先级 3：meta PubDate
-META_PUBDATE_PATTERN = re.compile(
-    r'<meta[^>]+name=["\']PubDate["\'][^>]+content=["\'](\d{4})[-/](\d{1,2})[-/](\d{1,2})'
-)
+# ========== 统一日志 ==========
+logger = logging.getLogger("YTU_News")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    fmt = logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    handler.setFormatter(fmt)
+    logger.addHandler(handler)
 
-
-def _parse_match(m):
-    if not m:
-        return None
-    y, mo, d = m.groups()
+# ========== 会话持久化 ==========
+def load_bind_sessions() -> set:
+    """加载已绑定推送的会话ID"""
+    if not BIND_FILE.exists():
+        return set()
     try:
-        return datetime(int(y), int(mo), int(d)).date()
-    except ValueError:
-        return None
+        with open(BIND_FILE, "r", encoding="utf-8") as f:
+            return set(json.load(f))
+    except Exception:
+        return set()
 
-
-def parse_date_text(text: str):
-    if not text:
-        return None
-    return _parse_match(DATE_PATTERN.search(text))
-
-
-def parse_detail_date(html: str):
-    if not html:
-        return None
-    # 优先级 1
-    d = _parse_match(DETAIL_DATE_PATTERN.search(html))
-    if d:
-        return d
-    # 优先级 2
-    d = _parse_match(PUBDATE_PATTERN.search(html))
-    if d:
-        return d
-    # 优先级 3
-    d = _parse_match(META_PUBDATE_PATTERN.search(html))
-    if d:
-        return d
-    # 优先级 4：全文兜底（只在前 64KB 里搜，避免匹配页脚版权年份）
-    return parse_date_text(html[:65536])
-
-
-def extract_date(a_tag, site: dict):
-    sel = site.get("date_selector")
-    if sel:
-        node = a_tag.find(sel)
-        if not node and a_tag.parent:
-            node = a_tag.parent.find(sel)
-        if node:
-            d = parse_date_text(node.get_text(" ", strip=True))
-            if d:
-                return d
-
-    d = parse_date_text(a_tag.get_text(" ", strip=True))
-    if d:
-        return d
-
-    if a_tag.parent:
-        d = parse_date_text(a_tag.parent.get_text(" ", strip=True))
-        if d:
-            return d
-
-    for sib in [a_tag.find_next_sibling(), a_tag.find_previous_sibling()]:
-        if sib:
-            d = parse_date_text(sib.get_text(" ", strip=True))
-            if d:
-                return d
-
-    href = a_tag.get("href", "") or ""
-    m = URL_DATE_PATTERN.search(href)
-    if m:
-        y, mo, d_ = m.groups()
-        try:
-            return datetime(int(y), int(mo), int(d_)).date()
-        except ValueError:
-            pass
-
-    return None
+def save_bind_sessions(sessions: set):
+    """保存绑定的会话ID"""
+    try:
+        with open(BIND_FILE, "w", encoding="utf-8") as f:
+            json.dump(list(sessions), f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"保存绑定会话失败: {e}")
