@@ -29,6 +29,19 @@ CLEANUP_DAYS = 180
 PUSH_TIMES = [(12, 0)]
 PUSH_LIMIT = 10
 
+# ===== 群聊白名单 =====
+ALLOWED_GROUPS = [
+    # 填 /sid 拿到的 UMO，带 qq_official: 前缀
+    # "qq_official:default_1905605993:GroupMessage:C4DA56E7167E4824E8E2307771CF8EAA",
+]
+
+
+def is_allowed(event: AstrMessageEvent) -> bool:
+    if not ALLOWED_GROUPS:
+        return True
+    return event.unified_msg_origin in ALLOWED_GROUPS
+
+
 _sub_lock = asyncio.Lock()
 _subs_cache = None
 
@@ -36,7 +49,6 @@ _subs_cache = None
 # ==================== 订阅读写 ====================
 
 def load_subs():
-    """返回 {umo: [uid, ...]}。"""
     global _subs_cache
     if _subs_cache is not None:
         return _subs_cache
@@ -65,7 +77,6 @@ def save_subs(data):
 # ==================== 发送重试 ====================
 
 async def _send_with_retry(context, umo, chain, retries=2, delay=2):
-    """发送消息，失败重试。"""
     for i in range(retries):
         try:
             await context.send_message(umo, chain)
@@ -164,7 +175,7 @@ class YtuNewsPlugin(Star):
         self._push_task = None
         self._render_lock = asyncio.Lock()
         self._last_refresh = {}
-        self._refresh_cooldown = 5400  # 1.5 小时
+        self._refresh_cooldown = 5400
 
     async def initialize(self):
         logger.info("✅ 烟大新闻插件已加载")
@@ -222,7 +233,6 @@ class YtuNewsPlugin(Star):
                 f"新写入 {inserted} 条，清理 {deleted} 条"
             )
             if inserted > 0:
-                # 异步，不阻塞抓取循环
                 asyncio.create_task(self._push_important())
         except Exception as e:
             logger.warning(f"[ytunews] {tag}抓取异常: {e}")
@@ -230,7 +240,6 @@ class YtuNewsPlugin(Star):
     # ==================== 重要通知立即推 ====================
 
     async def _push_important(self):
-        """教务处（重要）有新增 → 立即 @ 订阅人 + 正文。"""
         now = datetime.now()
         last_important = db.get_last_important_push()
         since = last_important if last_important else (now - timedelta(hours=3))
@@ -256,6 +265,8 @@ class YtuNewsPlugin(Star):
             return
 
         async def _send_one(umo, uids):
+            if ALLOWED_GROUPS and umo not in ALLOWED_GROUPS:
+                return
             try:
                 body_chain = MessageChain(chain=[Plain(text)])
                 await _send_with_retry(self.context, umo, body_chain)
@@ -292,10 +303,6 @@ class YtuNewsPlugin(Star):
                 await asyncio.sleep(60)
 
     async def _push_daily(self):
-        """中午 12 点推送。
-        有更新 → @ 订阅人 + 正文 + 图片
-        无更新 → 不 @，正文 + 图片
-        """
         now = datetime.now()
         last_push = db.get_last_push()
         since = last_push if last_push else (now - timedelta(days=1))
@@ -338,6 +345,8 @@ class YtuNewsPlugin(Star):
             return
 
         async def _send_one(umo, uids):
+            if ALLOWED_GROUPS and umo not in ALLOWED_GROUPS:
+                return
             try:
                 if img_url:
                     body_chain = MessageChain(chain=[Plain(text), Image.fromURL(img_url)])
@@ -417,6 +426,8 @@ class YtuNewsPlugin(Star):
 
     @filter.command("订阅")
     async def subscribe(self, event: AstrMessageEvent):
+        if not is_allowed(event):
+            return
         umo = event.unified_msg_origin
         uid = str(event.get_sender_id())
 
@@ -432,6 +443,8 @@ class YtuNewsPlugin(Star):
 
     @filter.command("取消订阅")
     async def unsubscribe(self, event: AstrMessageEvent):
+        if not is_allowed(event):
+            return
         umo = event.unified_msg_origin
         uid = str(event.get_sender_id())
 
@@ -448,6 +461,9 @@ class YtuNewsPlugin(Star):
 
     @filter.command("新闻")
     async def news(self, event: AstrMessageEvent):
+        if not is_allowed(event):
+            return
+
         if db.count_all() == 0:
             yield event.plain_result("首次使用，正在抓取新闻，请稍候…")
             try:
@@ -475,6 +491,8 @@ class YtuNewsPlugin(Star):
 
     @filter.command("搜索")
     async def search(self, event: AstrMessageEvent, keyword: str = None):
+        if not is_allowed(event):
+            return
         if not keyword:
             yield event.plain_result("用法：/搜索 关键词")
             return
@@ -490,6 +508,8 @@ class YtuNewsPlugin(Star):
 
     @filter.command("刷新")
     async def refresh(self, event: AstrMessageEvent):
+        if not is_allowed(event):
+            return
         if not event.is_admin():
             return
 
@@ -517,6 +537,8 @@ class YtuNewsPlugin(Star):
 
     @filter.command("统计")
     async def stats(self, event: AstrMessageEvent):
+        if not is_allowed(event):
+            return
         rows = db.site_stats()
         if not rows:
             yield event.plain_result("暂无数据。")
@@ -528,5 +550,7 @@ class YtuNewsPlugin(Star):
 
     @filter.command("测试推送")
     async def test_push(self, event: AstrMessageEvent):
+        if not is_allowed(event):
+            return
         await self._push_daily()
         yield event.plain_result("已触发一次推送，去群里看看。")
