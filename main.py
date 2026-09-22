@@ -31,8 +31,8 @@ PUSH_LIMIT = 10
 
 # ===== 群聊白名单 =====
 ALLOWED_GROUPS = [
-    # 填 /sid 拿到的 UMO，带 qq_official: 前缀
-    # "qq_official:default_1905605993:GroupMessage:C4DA56E7167E4824E8E2307771CF8EAA",
+    "default_1905605993:GroupMessage:C4DA56E7167E4824E8E2307771CF8EAA",   # 新闻群
+    "default_1905605993:GroupMessage:E13B720565366E510BCBCA5E16BA84E0",   # 测试群
 ]
 
 
