@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, date
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageChain
-from astrbot.api.message_components import Plain, Image, AtAll
+from astrbot.api.message_components import Plain, Image
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger
 
@@ -15,7 +15,7 @@ from . import spider
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 DATA_DIR = StarTools.get_data_dir("astrbot_plugin_ytunews")
-SEEN_FILE = DATA_DIR / "seen_groups.json"
+SUB_FILE = DATA_DIR / "subs.json"
 
 CATEGORY_ORDER = ["重要", "科研竞赛", "研究生", "其他"]
 CATEGORY_LIMIT = {"重要": 20, "科研竞赛": 15, "研究生": 5, "其他": 20}
@@ -29,44 +29,54 @@ CLEANUP_DAYS = 180
 PUSH_TIMES = [(12, 0)]
 PUSH_LIMIT = 10
 
-_seen_lock = asyncio.Lock()
-_seen_cache = None   # None 表示未加载
+_sub_lock = asyncio.Lock()
+_subs_cache = None
 
 
-# ==================== 群列表读写 ====================
+# ==================== 订阅读写 ====================
 
-def load_seen():
-    global _seen_cache
-    if _seen_cache is not None:
-        return _seen_cache
-    if SEEN_FILE.exists():
+def load_subs():
+    """返回 {umo: [uid, ...]}。"""
+    global _subs_cache
+    if _subs_cache is not None:
+        return _subs_cache
+    if SUB_FILE.exists():
         try:
-            data = json.loads(SEEN_FILE.read_text(encoding="utf-8"))
-            _seen_cache = data if isinstance(data, list) else []
+            data = json.loads(SUB_FILE.read_text(encoding="utf-8"))
+            _subs_cache = data if isinstance(data, dict) else {}
         except Exception:
-            _seen_cache = []
+            _subs_cache = {}
     else:
-        _seen_cache = []
-    return _seen_cache
+        _subs_cache = {}
+    return _subs_cache
 
 
-def save_seen(lst):
-    global _seen_cache
-    _seen_cache = lst
+def save_subs(data):
+    global _subs_cache
+    _subs_cache = data
     try:
-        SEEN_FILE.write_text(
-            json.dumps(lst, ensure_ascii=False, indent=2), encoding="utf-8"
+        SUB_FILE.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
         )
     except Exception as e:
-        logger.warning(f"[ytunews] 保存群列表失败: {e}")
+        logger.warning(f"[ytunews] 保存订阅失败: {e}")
 
 
-async def remember_group(umo: str):
-    async with _seen_lock:
-        seen = load_seen()
-        if umo not in seen:
-            seen.append(umo)
-            save_seen(seen)
+# ==================== 发送重试 ====================
+
+async def _send_with_retry(context, umo, chain, retries=2, delay=2):
+    """发送消息，失败重试。"""
+    for i in range(retries):
+        try:
+            await context.send_message(umo, chain)
+            return True
+        except Exception as e:
+            if i == retries - 1:
+                logger.error(f"[ytunews] 推送失败 {umo}: {e}")
+                return False
+            logger.warning(f"[ytunews] 推送重试 {i+1}/{retries} {umo}: {e}")
+            await asyncio.sleep(delay)
+    return False
 
 
 # ==================== 工具函数 ====================
@@ -211,10 +221,61 @@ class YtuNewsPlugin(Star):
                 f"[ytunews] {tag}抓取 {len(items)} 条，"
                 f"新写入 {inserted} 条，清理 {deleted} 条"
             )
+            if inserted > 0:
+                # 异步，不阻塞抓取循环
+                asyncio.create_task(self._push_important())
         except Exception as e:
             logger.warning(f"[ytunews] {tag}抓取异常: {e}")
 
-    # ==================== 定时推送 ====================
+    # ==================== 重要通知立即推 ====================
+
+    async def _push_important(self):
+        """教务处（重要）有新增 → 立即 @ 订阅人 + 正文。"""
+        now = datetime.now()
+        last_important = db.get_last_important_push()
+        since = last_important if last_important else (now - timedelta(hours=3))
+        date_cutoff = (now - timedelta(days=1)).date()
+
+        new_items = db.query_unpushed(since, date_cutoff=date_cutoff, limit=10)
+        important_items = [it for it in new_items if it.get("category") == "重要"]
+        if not important_items:
+            return
+
+        today = now.strftime("%m月%d日 %H:%M")
+        lines = [f"⚠️ 重要通知（{today}）", ""]
+        for i, it in enumerate(important_items, 1):
+            title = it["title"]
+            if len(title) > 30:
+                title = title[:30] + "…"
+            lines.append(f"{i}. {title}（{it['site']}）")
+            lines.append(f"   {it['url']}")
+        text = "\n".join(lines)
+
+        subs = load_subs()
+        if not subs:
+            return
+
+        async def _send_one(umo, uids):
+            try:
+                body_chain = MessageChain(chain=[Plain(text)])
+                await _send_with_retry(self.context, umo, body_chain)
+
+                if uids:
+                    for i in range(0, len(uids), 50):
+                        batch = uids[i:i + 50]
+                        at_tags = " ".join(f'<qqbot-at-user id="{u}" />' for u in batch)
+                        at_chain = MessageChain(chain=[Plain(at_tags)])
+                        await _send_with_retry(self.context, umo, at_chain)
+                        await asyncio.sleep(1)
+                logger.info(f"[ytunews] 重要推送到 {umo}，@ {len(uids)} 人")
+            except Exception as e:
+                logger.error(f"[ytunews] 重要推送失败 {umo}: {e}")
+
+        await asyncio.gather(*[_send_one(u, ids) for u, ids in subs.items()])
+        db.mark_pushed([it["id"] for it in important_items])
+        db.set_last_important_push(now)
+
+    # ==================== 中午定时推送 ====================
 
     async def _push_loop(self):
         while True:
@@ -231,9 +292,9 @@ class YtuNewsPlugin(Star):
                 await asyncio.sleep(60)
 
     async def _push_daily(self):
-        """每天 12 点推送。
-        有新增 → AtAll + 文字列表 + 图片
-        无新增 → 普通消息 + "今日无新增" + 图片
+        """中午 12 点推送。
+        有更新 → @ 订阅人 + 正文 + 图片
+        无更新 → 不 @，正文 + 图片
         """
         now = datetime.now()
         last_push = db.get_last_push()
@@ -271,33 +332,35 @@ class YtuNewsPlugin(Star):
         text = "\n".join(lines)
         img_url = await self._render_news_image()
 
-        targets = load_seen()
-        if not targets:
-            logger.info("[ytunews] 无群使用过，跳过推送")
+        subs = load_subs()
+        if not subs:
+            logger.info("[ytunews] 无订阅者，跳过推送")
             return
 
-        async def _send_one(umo):
+        async def _send_one(umo, uids):
             try:
                 if img_url:
-                    if has_new:
-                        chain = MessageChain(chain=[AtAll(), Plain(text), Image.fromURL(img_url)])
-                    else:
-                        chain = MessageChain(chain=[Plain(text), Image.fromURL(img_url)])
+                    body_chain = MessageChain(chain=[Plain(text), Image.fromURL(img_url)])
                 else:
-                    if has_new:
-                        chain = MessageChain(chain=[AtAll(), Plain(text)])
-                    else:
-                        chain = MessageChain(chain=[Plain(text)])
-                await self.context.send_message(umo, chain)
+                    body_chain = MessageChain(chain=[Plain(text)])
+                await _send_with_retry(self.context, umo, body_chain)
+
+                if has_new and uids:
+                    for i in range(0, len(uids), 50):
+                        batch = uids[i:i + 50]
+                        at_tags = " ".join(f'<qqbot-at-user id="{u}" />' for u in batch)
+                        at_chain = MessageChain(chain=[Plain(at_tags)])
+                        await _send_with_retry(self.context, umo, at_chain)
+                        await asyncio.sleep(1)
+
                 logger.info(
-                    f"[ytunews] 推送到 {umo}，"
-                    f"{'@全体' if has_new else '普通'}，"
-                    f"图片={'有' if img_url else '无'}"
+                    f"[ytunews] 定时推送到 {umo}，"
+                    f"{'@' if has_new else '普通'}，@ {len(uids)} 人"
                 )
             except Exception as e:
-                logger.error(f"[ytunews] 推送失败 {umo}: {e}")
+                logger.error(f"[ytunews] 定时推送失败 {umo}: {e}")
 
-        await asyncio.gather(*[_send_one(u) for u in targets])
+        await asyncio.gather(*[_send_one(u, ids) for u, ids in subs.items()])
 
         db.set_last_push(now)
         if new_items:
@@ -352,10 +415,39 @@ class YtuNewsPlugin(Star):
 
     # ==================== 命令 ====================
 
+    @filter.command("订阅")
+    async def subscribe(self, event: AstrMessageEvent):
+        umo = event.unified_msg_origin
+        uid = str(event.get_sender_id())
+
+        async with _sub_lock:
+            subs = load_subs()
+            if umo not in subs:
+                subs[umo] = []
+            if uid in subs[umo]:
+                return
+            subs[umo].append(uid)
+            save_subs(subs)
+        yield event.plain_result("✅ 已订阅烟大新闻，有新通知会 @ 你。")
+
+    @filter.command("取消订阅")
+    async def unsubscribe(self, event: AstrMessageEvent):
+        umo = event.unified_msg_origin
+        uid = str(event.get_sender_id())
+
+        async with _sub_lock:
+            subs = load_subs()
+            if umo not in subs or uid not in subs[umo]:
+                yield event.plain_result("你还没订阅。")
+                return
+            subs[umo].remove(uid)
+            if not subs[umo]:
+                del subs[umo]
+            save_subs(subs)
+        yield event.plain_result("已取消订阅。")
+
     @filter.command("新闻")
     async def news(self, event: AstrMessageEvent):
-        await remember_group(event.unified_msg_origin)
-
         if db.count_all() == 0:
             yield event.plain_result("首次使用，正在抓取新闻，请稍候…")
             try:
@@ -416,52 +508,4 @@ class YtuNewsPlugin(Star):
             items = await spider.crawl_all()
             inserted = db.save_news(items)
             yield event.plain_result(
-                f"抓取完成：共 {len(items)} 条，新写入 {inserted} 条，"
-                f"库内总计 {db.count_all()} 条"
-            )
-        except Exception as e:
-            logger.error(f"[ytunews] 手动刷新失败: {e}")
-            yield event.plain_result(f"抓取失败：{e}")
-
-    @filter.command("统计")
-    async def stats(self, event: AstrMessageEvent):
-        rows = db.site_stats()
-        if not rows:
-            yield event.plain_result("暂无数据。")
-            return
-        lines = ["📊 站点统计：", ""]
-        for r in rows:
-            lines.append(f"{r['site']}：{r['total']} 条，最近 {r['last_date'] or '无'}")
-        yield event.plain_result("\n".join(lines))
-
-    @filter.command("测试推送")
-    async def test_push(self, event: AstrMessageEvent):
-        await self._push_daily()
-        yield event.plain_result("已触发一次推送，去群里看看。")
-
-    @filter.command("测试@")
-    async def test_at(self, event: AstrMessageEvent):
-        """测试 @全体成员 是否生效。"""
-        now = datetime.now()
-        today = now.strftime("%m月%d日")
-
-        text = (
-            f"📢 烟大新闻（{today}）· 测试推送\n\n"
-            f"1. [测试] 这是一条测试通知，用于验证 @全体成员 是否生效\n"
-            f"   https://jwc.ytu.edu.cn/\n\n"
-            f"📋 完整列表见图片 ↓"
-        )
-
-        img_url = await self._render_news_image()
-
-        try:
-            if img_url:
-                chain = MessageChain(chain=[AtAll(), Plain(text), Image.fromURL(img_url)])
-            else:
-                chain = MessageChain(chain=[AtAll(), Plain(text)])
-            await self.context.send_message(event.unified_msg_origin, chain)
-            logger.info("[ytunews] 测试@ 已发送，带 AtAll")
-            yield event.plain_result("已发送测试消息，看群里 @ 是否生效。")
-        except Exception as e:
-            logger.error(f"[ytunews] 测试@ 失败: {e}")
-            yield event.plain_result(f"发送失败：{e}")
+                f"抓取完成：共 {len(items)} 条，新写入 {inserted} 
