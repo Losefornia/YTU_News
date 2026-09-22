@@ -6,7 +6,7 @@ SITES = [
         "category": "重要",
         "list_url": "https://jwc.ytu.edu.cn/index/tzgg.htm",
         "container": "div.main_conRCb",
-        "link_filter": "/info/",
+        "link_filter": "info/",
     },
     {
         "name": "学生工作处（武装部）",
@@ -27,7 +27,7 @@ SITES = [
         "category": "科研竞赛",
         "list_url": "https://xkjs.ytu.edu.cn/index.htm",
         "container": "body",
-        "link_filter": "info/1046/",
+        "link_filter": "info/",
     },
     {
         "name": "研究生处",
