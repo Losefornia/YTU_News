@@ -407,12 +407,12 @@ class YtuNewsPlugin(Star):
                 return None
 
             data = {
-                "title": "全部新闻",
+                "title": "不包含学工系统新闻，请自行登录查看。如有其他重要网站，私聊群主",
                 "total": len(ordered),
                 "now": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "groups": {c: groups.get(c, []) for c in CATEGORY_ORDER},
                 "base_size": calc_base_size(len(ordered)),
-                "footer_note": "数据来源于烟台大学各学院官网，仅供参考",
+                "footer_note": "数据来源于烟台大学官网，仅供参考",
                 "douyin_id": "47780260687",
             }
 
