@@ -111,10 +111,12 @@ async def enrich_dates(client, items, max_fetch_per_site: int = 10):
     dates = Counter(it["date"] for it in items if it["date"])
     suspicious = {d for d, c in dates.items() if c >= 3}
 
-    need_fetch = [
-        it for it in items
-        if it["date"] is None or it["date"] in suspicious
-    ]
+    # 【改】用 dict 去重，避免同一个 URL 被抓两次
+    need_fetch = {}
+    for it in items:
+        if it["date"] is None or it["date"] in suspicious:
+            need_fetch[it["url"]] = it
+    need_fetch = list(need_fetch.values())
 
     fetched = {}
     fetched_count = 0
@@ -166,10 +168,11 @@ async def crawl_site(client, site, existing_urls=None):
 
 async def crawl_json_site(client, site):
     try:
+        # 【改】带上全局 HEADERS，再加 Referer
         r = await client.get(
             site["api_url"],
             params=site.get("params", {}),
-            headers={"Referer": site.get("referer", "")},
+            headers={**HEADERS, "Referer": site.get("referer", "")},
         )
         r.raise_for_status()
         data = r.json()
