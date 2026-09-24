@@ -408,7 +408,7 @@ class YtuNewsPlugin(Star):
                 return None
 
             data = {
-                "title": "全部新闻",
+                "title": "不包含学工系统，请自行密码登录查看",
                 "total": len(ordered),
                 "now": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "groups": {c: groups.get(c, []) for c in CATEGORY_ORDER},
