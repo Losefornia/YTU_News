@@ -496,7 +496,11 @@ class YtuNewsPlugin(Star):
             return
 
         # 从消息里取参数
-        parts = event.message_str.replace("/搜索", "").strip().split()
+        parts = event.message_str.strip().split()
+        # 去掉命令名（第一个 token）
+        if parts and parts[0].lstrip("/") in ("搜索", "搜"):
+            parts = parts[1:]
+
         if not parts:
             yield event.plain_result(
                 "用法：/搜索 关键词 [页码]\n"
