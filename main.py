@@ -23,7 +23,7 @@ NEW_DAYS = 3
 
 # ===== 抓取：早 8 点到晚 8 点，每 3 小时 =====
 FETCH_TIMES = [(8, 0), (11, 0), (14, 0), (17, 0), (20, 0)]
-CLEANUP_DAYS = 36000
+CLEANUP_DAYS = 36500   # 相当于不清理
 
 # ===== 定时推送：每天中午 12 点 =====
 PUSH_TIMES = [(12, 0)]
@@ -408,7 +408,7 @@ class YtuNewsPlugin(Star):
                 return None
 
             data = {
-                "title": "不包含学工系统，请自行密码登录查看",
+                "title": "全部新闻",
                 "total": len(ordered),
                 "now": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "groups": {c: groups.get(c, []) for c in CATEGORY_ORDER},
@@ -491,10 +491,13 @@ class YtuNewsPlugin(Star):
         yield event.image_result(img_url)
 
     @filter.command("搜索")
-    async def search(self, event: AstrMessageEvent, keyword: str = None, page: str = None):
+    async def search(self, event: AstrMessageEvent):
         if not is_allowed(event):
             return
-        if not keyword:
+
+        # 从消息里取参数
+        parts = event.message_str.replace("/搜索", "").strip().split()
+        if not parts:
             yield event.plain_result(
                 "用法：/搜索 关键词 [页码]\n"
                 "示例：/搜索 竞赛\n"
@@ -503,18 +506,19 @@ class YtuNewsPlugin(Star):
             )
             return
 
-        if len(keyword.strip()) < 2:
+        # 最后一个如果是纯数字，当页码
+        page_num = 1
+        if len(parts) > 1 and parts[-1].isdigit():
+            page_num = int(parts[-1])
+            parts = parts[:-1]
+
+        keyword = " ".join(parts)
+        if not keyword or len(keyword.strip()) < 2:
             yield event.plain_result(
                 "关键词至少 2 个字。\n"
                 "比如 /搜索 竞赛，而不是 /搜索 6"
             )
             return
-
-        page_num = 1
-        if page and page.isdigit():
-            page_num = int(page)
-        if page_num < 1:
-            page_num = 1
 
         limit = 10
         max_pages = 100
