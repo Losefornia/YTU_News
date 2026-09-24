@@ -31,8 +31,8 @@ PUSH_LIMIT = 10
 
 # ===== 群聊白名单 =====
 ALLOWED_GROUPS = [
-    "default_1905605993:GroupMessage:C4DA56E7167E4824E8E2307771CF8EAA",   # 新闻群
-    "default_1905605993:GroupMessage:E13B720565366E510BCBCA5E16BA84E0",   # 测试群
+    "default_1905605993:GroupMessage:C4DA56E7167E4824E8E2307771CF8EAA",
+    "default_1905605993:GroupMessage:E13B720565366E510BCBCA5E16BA84E0",
 ]
 
 
@@ -175,7 +175,7 @@ class YtuNewsPlugin(Star):
         self._push_task = None
         self._render_lock = asyncio.Lock()
         self._last_refresh = {}
-        self._refresh_cooldown = 5400
+        self._refresh_cooldown = 5400  # 1.5 小时
 
     async def initialize(self):
         logger.info("✅ 烟大新闻插件已加载")
@@ -228,6 +228,7 @@ class YtuNewsPlugin(Star):
             deleted = db.cleanup_old(days=CLEANUP_DAYS)
             if deleted:
                 db.checkpoint()
+            db.clear_search_cache()
             logger.info(
                 f"[ytunews] {tag}抓取 {len(items)} 条，"
                 f"新写入 {inserted} 条，清理 {deleted} 条"
@@ -377,7 +378,7 @@ class YtuNewsPlugin(Star):
 
     # ==================== 渲染 ====================
 
-    async def _render_news_image(self, days: int = None):
+    async def _render_news_image(self, days=None):
         async with self._render_lock:
             try:
                 items = db.query_news(days)
@@ -407,12 +408,12 @@ class YtuNewsPlugin(Star):
                 return None
 
             data = {
-                "title": "不包含学工系统新闻，请自行登录查看。如有其他重要网站，私聊群主",
+                "title": "全部新闻",
                 "total": len(ordered),
                 "now": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "groups": {c: groups.get(c, []) for c in CATEGORY_ORDER},
                 "base_size": calc_base_size(len(ordered)),
-                "footer_note": "数据来源于烟台大学官网，仅供参考",
+                "footer_note": "数据来源于烟台大学各学院官网，仅供参考",
                 "douyin_id": "47780260687",
             }
 
@@ -490,20 +491,81 @@ class YtuNewsPlugin(Star):
         yield event.image_result(img_url)
 
     @filter.command("搜索")
-    async def search(self, event: AstrMessageEvent, keyword: str = None):
+    async def search(self, event: AstrMessageEvent, keyword: str = None, page: str = None):
         if not is_allowed(event):
             return
         if not keyword:
-            yield event.plain_result("用法：/搜索 关键词")
+            yield event.plain_result(
+                "用法：/搜索 关键词 [页码]\n"
+                "示例：/搜索 竞赛\n"
+                "示例：/搜索 数学 建模\n"
+                "示例：/搜索 奖学金 2"
+            )
             return
-        rows = db.search_news(keyword, limit=10)
+
+        if len(keyword.strip()) < 2:
+            yield event.plain_result(
+                "关键词至少 2 个字。\n"
+                "比如 /搜索 竞赛，而不是 /搜索 6"
+            )
+            return
+
+        page_num = 1
+        if page and page.isdigit():
+            page_num = int(page)
+        if page_num < 1:
+            page_num = 1
+
+        limit = 10
+        max_pages = 100
+        total = db.count_search(keyword, days=730)
+        total_pages = min((total + limit - 1) // limit, max_pages)
+
+        if total == 0:
+            yield event.plain_result(
+                f"没有找到包含「{keyword}」的新闻（最近 2 年）。\n\n"
+                f"💡 建议：\n"
+                f"· 换更短的关键词\n"
+                f"· 用多个关键词，比如「/搜索 数学 建模」"
+            )
+            return
+
+        if page_num > total_pages:
+            yield event.plain_result(
+                f"没有更多结果了（共 {total} 条，只显示前 {total_pages} 页）。"
+            )
+            return
+
+        offset = (page_num - 1) * limit
+        rows = db.search_news(keyword, limit=limit, offset=offset, days=730)
+
         if not rows:
-            yield event.plain_result(f"没有找到包含「{keyword}」的新闻。")
+            yield event.plain_result(f"第 {page_num} 页没有结果。")
             return
-        lines = [f"🔍 包含「{keyword}」的新闻：", ""]
+
+        kws = keyword.split()
+        lines = [
+            f"🔍 包含「{keyword}」的新闻",
+            f"📊 共 {total} 条 · 第 {page_num}/{total_pages} 页",
+            "",
+        ]
         for it in rows:
-            lines.append(f"· {it['title']}（{it['site']} {it['date'] or '无日期'}）")
+            title = it["title"]
+            for kw in kws:
+                title = title.replace(kw, f"【{kw}】")
+            lines.append(f"· {title}（{it['site']} {it['date'] or '无日期'}）")
             lines.append(f"  {it['url']}")
+
+        if total_pages > 1:
+            lines.append("")
+            nav = []
+            if page_num > 1:
+                nav.append(f"⬅️ /搜索 {keyword} {page_num - 1}")
+            if page_num < total_pages:
+                nav.append(f"➡️ /搜索 {keyword} {page_num + 1}")
+            if nav:
+                lines.append(" | ".join(nav))
+
         yield event.plain_result("\n".join(lines))
 
     @filter.command("刷新")
@@ -533,6 +595,35 @@ class YtuNewsPlugin(Star):
             )
         except Exception as e:
             logger.error(f"[ytunews] 手动刷新失败: {e}")
+            yield event.plain_result(f"抓取失败：{e}")
+
+    @filter.command("遍历")
+    async def traverse(self, event: AstrMessageEvent):
+        """管理员：清除全量标记，触发一次全量翻页抓取"""
+        if not is_allowed(event):
+            return
+        if not event.is_admin():
+            return
+
+        conn = db.get_conn()
+        conn.execute("DELETE FROM kv WHERE key LIKE 'full_fetched_%'")
+        conn.commit()
+
+        yield event.plain_result("已清除全量标记，开始全量翻页抓取…")
+
+        try:
+            items = await spider.crawl_all()
+            inserted = db.save_news(items)
+            deleted = db.cleanup_old(days=CLEANUP_DAYS)
+            if deleted:
+                db.checkpoint()
+            yield event.plain_result(
+                f"✅ 全量抓取完成\n"
+                f"共抓取 {len(items)} 条，新写入 {inserted} 条，清理 {deleted} 条\n"
+                f"库内总计 {db.count_all()} 条"
+            )
+        except Exception as e:
+            logger.error(f"[ytunews] /遍历 失败: {e}")
             yield event.plain_result(f"抓取失败：{e}")
 
     @filter.command("统计")
