@@ -67,6 +67,32 @@ SITES = [
         "link_filter": None,
         "allow_external": True,
     },
+    # ===== 新增：信息公开网 =====
+    {
+        "name": "信息公开-学生管理",
+        "category": "重要",
+        "base": "https://gk.ytu.edu.cn/",
+        "list_url": "https://gk.ytu.edu.cn/xxgkml/xsgl.htm",
+        "page_pattern": "https://gk.ytu.edu.cn/xxgkml/xsgl/{page}.htm",
+        "max_pages": 2,
+        "page_reverse": True,          # 【新】递减翻页
+        "container": "ul.list",
+        "link_filter": "info/",
+        "allow_external": False,
+    },
+    {
+        "name": "信息公开-目录",
+        "category": "其他",
+        "base": "https://gk.ytu.edu.cn/",
+        "list_url": "https://gk.ytu.edu.cn/xxgkml.htm",
+        "page_pattern": "https://gk.ytu.edu.cn/xxgkml/{page}.htm",
+        "max_pages": 64,
+        "page_reverse": True,          # 【新】递减翻页
+        "container": "ul.list",
+        "link_filter": "info/",
+        "allow_external": False,
+    },
+    # ===== 就业信息网 =====
     {
         "name": "就业信息网",
         "category": "其他",
