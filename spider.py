@@ -170,6 +170,7 @@ async def crawl_site(client, site, existing_urls=None):
         max_pages = site.get("max_pages", 50)
 
     page_pattern = site.get("page_pattern")
+    page_reverse = site.get("page_reverse", False)   # 【新增】
     all_items = []
     seen = set()
 
@@ -179,7 +180,14 @@ async def crawl_site(client, site, existing_urls=None):
         else:
             if not page_pattern:
                 break
-            url = page_pattern.format(page=page)
+            # 【新增】递减翻页：page=2 → 1.htm, page=3 → 2.htm...
+            if page_reverse:
+                actual_page = page - 1
+                if actual_page < 1:
+                    break
+                url = page_pattern.format(page=actual_page)
+            else:
+                url = page_pattern.format(page=page)
 
         try:
             html = await fetch(client, url)
