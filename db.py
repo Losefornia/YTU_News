@@ -186,13 +186,41 @@ def get_all_urls():
 
 
 def search_news(keyword, limit=10, offset=0, days=730):
-    """搜索标题，支持多关键词、分页、日期范围"""
+    """搜索标题。先正常搜，搜不到再拆字模糊搜"""
     keywords = keyword.split()
     if not keywords:
         return []
     conn = get_conn()
+
+    # ===== 1. 正常搜 =====
     conditions = " AND ".join(["title LIKE ?"] * len(keywords))
     params = [f"%{kw}%" for kw in keywords]
+
+    if days:
+        cutoff = (datetime.now().date() - timedelta(days=days)).isoformat()
+        sql = (
+            f"SELECT * FROM news WHERE {conditions} AND date >= ? "
+            f"ORDER BY date DESC, id DESC LIMIT ? OFFSET ?"
+        )
+        params.extend([cutoff, limit, offset])
+    else:
+        sql = (
+            f"SELECT * FROM news WHERE {conditions} "
+            f"ORDER BY date DESC, id DESC LIMIT ? OFFSET ?"
+        )
+        params.extend([limit, offset])
+
+    rows = conn.execute(sql, params).fetchall()
+    if rows:
+        return [dict(r) for r in rows]
+
+    # ===== 2. 拆字模糊搜 =====
+    chars = [c for c in keyword if c.strip()]
+    if len(chars) < 2:
+        return []
+
+    conditions = " AND ".join(["title LIKE ?"] * len(chars))
+    params = [f"%{c}%" for c in chars]
 
     if days:
         cutoff = (datetime.now().date() - timedelta(days=days)).isoformat()
@@ -213,7 +241,7 @@ def search_news(keyword, limit=10, offset=0, days=730):
 
 
 def count_search(keyword, days=730):
-    """统计匹配数，带缓存"""
+    """统计匹配数。先正常搜，搜不到再拆字模糊搜"""
     key = (keyword, days)
     cached = _count_cache.get(key)
     if cached:
@@ -225,6 +253,8 @@ def count_search(keyword, days=730):
     if not keywords:
         return 0
     conn = get_conn()
+
+    # ===== 1. 正常搜 =====
     conditions = " AND ".join(["title LIKE ?"] * len(keywords))
     params = [f"%{kw}%" for kw in keywords]
 
@@ -236,6 +266,23 @@ def count_search(keyword, days=730):
         sql = f"SELECT COUNT(*) FROM news WHERE {conditions}"
 
     n = conn.execute(sql, params).fetchone()[0]
+
+    # ===== 2. 搜不到，拆字模糊搜 =====
+    if n == 0:
+        chars = [c for c in keyword if c.strip()]
+        if len(chars) >= 2:
+            conditions = " AND ".join(["title LIKE ?"] * len(chars))
+            params = [f"%{c}%" for c in chars]
+
+            if days:
+                cutoff = (datetime.now().date() - timedelta(days=days)).isoformat()
+                sql = f"SELECT COUNT(*) FROM news WHERE {conditions} AND date >= ?"
+                params.append(cutoff)
+            else:
+                sql = f"SELECT COUNT(*) FROM news WHERE {conditions}"
+
+            n = conn.execute(sql, params).fetchone()[0]
+
     _count_cache[key] = (time.time(), n)
     return n
 
@@ -291,6 +338,8 @@ def count_unpushed(since, date_cutoff=None):
 
 
 def cleanup_old(days=180):
+    if days is None:
+        return 0
     cutoff_date = (datetime.now().date() - timedelta(days=days)).isoformat()
     cutoff_ts = (datetime.now() - timedelta(days=days)).isoformat()
     conn = get_conn()
